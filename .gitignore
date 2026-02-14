@@ -11,3 +11,7 @@ test/.bats/run-logs/
 /test2/
 report.xml
 report.log
+
+# nix
+/result
+.direnv/

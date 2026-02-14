@@ -3,25 +3,17 @@
 default:
     @just --list
 
-# Build the package
-build:
-    nix build
-
-# Run the script
-run *ARGS:
-    nix run . -- {{ARGS}}
-
 # Run tests
-test:
-    nix develop --command bats tests/
+test *ARGS:
+    nix develop --command bats test/ {{ARGS}}
 
 # Check with shellcheck
 check:
-    nix develop --command shellcheck bin/bats-core.bash
+    nix develop --command shellcheck lib/*.bash libexec/*
 
 # Format with shfmt
 fmt:
-    nix develop --command shfmt -w -i 2 -ci bin/bats-core.bash
+    nix develop --command shfmt -w -i 2 -ci lib/*.bash libexec/*
 
 # Clean build artifacts
 clean:

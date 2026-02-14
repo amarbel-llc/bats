@@ -1,5 +1,5 @@
 {
-  description = "Bash Automated Test System";
+  description = "Bash Automated Testing System (bats-core)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/23d72dabcb3b12469f57b37170fcbc1789bd7457";
@@ -22,24 +22,8 @@
         pkgs = import nixpkgs {
           inherit system;
         };
-        name = "bats-core";
-        script = (
-          pkgs.writeScriptBin name (builtins.readFile ./bin/bats-core.bash)
-        ).overrideAttrs (old: {
-          buildCommand = "${old.buildCommand}\n patchShebangs $out";
-        });
-        buildInputs = with pkgs; [
-          gum
-        ];
       in
       {
-        packages.default = pkgs.symlinkJoin {
-          inherit name;
-          paths = [ script ] ++ buildInputs;
-          buildInputs = [ pkgs.makeWrapper ];
-          postBuild = "wrapProgram $out/bin/${name} --prefix PATH : $out/bin";
-        };
-
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             just
@@ -51,13 +35,8 @@
           ];
 
           shellHook = ''
-            echo "${name} - dev environment"
+            echo "bats-core - dev environment"
           '';
-        };
-
-        apps.default = {
-          type = "app";
-          program = "${self.packages.${system}.default}/bin/${name}";
         };
       }
     );
