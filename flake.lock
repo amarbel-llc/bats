@@ -80,11 +80,11 @@
       },
       "locked": {
         "dir": "devenvs/shell",
-        "lastModified": 1771093533,
-        "narHash": "sha256-ymdfGtRJ972t3Ge1KeoxSq7had+FmGZQrGptufYFu7I=",
+        "lastModified": 1771094821,
+        "narHash": "sha256-0UZNet2R9Df8icwYJkeg5zL4vIap3sN22aZMKb5G7ew=",
         "owner": "friedenberg",
         "repo": "eng",
-        "rev": "814788f384805a4a630d57395a29158068b03406",
+        "rev": "57f83f12d707dfb183c4490176cf92f0450fb00f",
         "type": "github"
       },
       "original": {
