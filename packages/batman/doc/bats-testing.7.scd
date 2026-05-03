@@ -8,7 +8,7 @@ bats-testing - BATS integration test conventions for amarbel-llc projects
 
 Integration tests in amarbel-llc projects use BATS (Bash Automated Testing
 System) via the *batman* wrapper. Batman bundles BATS with six support
-libraries, sandcastle isolation, and TAP-14 output formatting.
+libraries, fence-based sandbox isolation, and TAP-14 output formatting.
 
 This manpage covers the conventions for writing, organizing, and running
 BATS tests.
@@ -183,9 +183,9 @@ teardown() {
 }
 ```
 
-# SANDCASTLE ENFORCEMENT
+# FENCE ENFORCEMENT
 
-Batman runs tests inside *sandcastle* by default, which enforces
+Batman runs tests inside *fence* by default, which enforces
 filesystem and network restrictions:
 
 - *Denied reads*: ~/.ssh, ~/.aws, ~/.gnupg, ~/.config, ~/.local,
@@ -195,12 +195,13 @@ filesystem and network restrictions:
 
 Override with wrapper flags:
 
-- *--no-sandbox* — disable sandcastle entirely
-- *--allow-unix-sockets* — allow Unix socket access
-- *--allow-local-binding* — allow localhost binding
+- *--no-sandbox* — disable fence entirely
+- *--allow-local-binding* — allow localhost binding (currently a
+  no-op until fence implements seccomp-level bind() blocking; see
+  https://github.com/amarbel-llc/bats/issues/3)
 
-Sandcastle and bats-island are complementary: bats-island prevents tests
-from *wanting* to access the real home; sandcastle *enforces* that they
+Fence and bats-island are complementary: bats-island prevents tests
+from *wanting* to access the real home; fence *enforces* that they
 cannot.
 
 # FIXTURE MANAGEMENT
@@ -274,12 +275,7 @@ arguments:
 	Prepend _path_ to PATH (repeatable, leftmost = highest priority).
 
 *--no-sandbox*
-	Disable sandcastle isolation.
-
-*--allow-unix-sockets*
-	Allow Unix socket access in sandbox. Required when testing binaries
-	that use async runtimes (tokio, async-std) — these create Unix
-	socketpairs during initialization and will panic without this flag.
+	Disable fence isolation.
 
 *--allow-local-binding*
 	Allow localhost binding in sandbox.

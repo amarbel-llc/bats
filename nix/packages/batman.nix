@@ -150,9 +150,6 @@ let
       tap-dancer-go
       fence
     ];
-    # `--allow-unix-sockets` is parsed for CLI compat but unused — fence
-    # has no equivalent of sandcastle's allowAllUnixSockets toggle.
-    excludeShellChecks = [ "SC2034" ];
     text = ''
       # --query-sandbox: report the active sandbox backend.
       # Always "fence" since this build wraps every test command in
@@ -165,7 +162,6 @@ let
 
       bin_dirs=()
       sandbox=true
-      allow_unix_sockets=false
       allow_local_binding=false
       no_tempdir_cleanup=false
       hide_passing=false
@@ -179,11 +175,6 @@ let
             ;;
           --no-sandbox)
             sandbox=false
-            shift
-            ;;
-          --allow-unix-sockets)
-            # No fence equivalent; accepted as a no-op for CLI compat.
-            allow_unix_sockets=true
             shift
             ;;
           --allow-local-binding)
