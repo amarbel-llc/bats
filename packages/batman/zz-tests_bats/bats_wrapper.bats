@@ -140,7 +140,7 @@ EOF
   assert_line --index 0 --regexp "^(TAP version|1\.\.)"
 }
 
-function bats_wrapper_no_sandbox_skips_sandcastle { # @test
+function bats_wrapper_no_sandbox_bypasses_fence { # @test
   cat >"${TEST_TMPDIR}/no_sandbox.bats" <<'EOF'
 #! /usr/bin/env bats
 function can_read_home_config { # @test
@@ -165,7 +165,7 @@ EOF
   # Extract BATS_RUN_TMPDIR from output (printed by --no-tempdir-cleanup)
   bats_run_dir="$(echo "$output" | grep "BATS_RUN_TMPDIR" | cut -d' ' -f2)"
   [[ -n $bats_run_dir ]]
-  # Verify the temp dir survived sandcastle cleanup
+  # Verify the temp dir survived (--no-tempdir-cleanup forwarded to bats)
   [[ -d $bats_run_dir ]]
   [[ -f "$bats_run_dir/test/1/marker.txt" ]]
   # Clean up manually
