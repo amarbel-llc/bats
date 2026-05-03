@@ -17,8 +17,9 @@ with:
   `https://github.com/bats-core/bats-core`.
 
 The flake's downstream consumers (e.g. `amarbel-llc/bob`) take this repo
-as a flake input and call `bats.lib.${system}.mkBats { sandcastle, tap-dancer-go }`
-to wire in their own sandbox runner.
+as a flake input and call `bats.lib.${system}.mkBats { tap-dancer-go }`.
+The wrapper always sandboxes test commands via `fence` (from the
+`amarbel-llc/nixpkgs` overlay's `pkgs.fence`).
 
 ## Build & Test
 
@@ -29,14 +30,14 @@ just check                 # shellcheck on lib/*.bash and libexec/*
 just fmt                   # shfmt formatting
 
 # Batman / bats-libs flake outputs
-just build-batman          # nix build .#default -o result-batman
-just build-bats-libs       # nix build .#bats-libs -o result-bats-libs
+just build-batman          # nix build .#default
+just build-bats-libs       # nix build .#bats-libs
 just flake-check           # nix flake check (runs check-bats-libs-path)
 just test-batman-bats      # batman zz-tests_bats/ via the wrapped bats
 just test-batman-fence     # batman.bats under plain nixpkgs bats
 just test-batman           # both batman test suites
 just run-batman <args>     # smoke-test the built batman binary
-just clean                 # rm -rf result result-batman result-bats-libs
+just clean                 # rm -f result result-*
 ```
 
 ## Architecture
@@ -45,13 +46,12 @@ just clean                 # rm -rf result result-batman result-bats-libs
 
 `flake.nix` exposes per-system:
 
-- `lib.${system}.mkBats { sandcastle ? null, tap-dancer-go ? ... }` — function
-  that returns the full batman package set. Pass `sandcastle = <derivation>`
-  to enable the sandboxed `bats` wrapper. The default (`sandcastle = null`)
-  produces a wrapper without the sandcastle code path, suitable for
-  consumers that don't run a sandcastle binary.
-- `packages.${system}` — `default`, `batman`, `bats`, `bats-libs`, plus the
-  six bats helper libs and `batman-manpages` individually.
+- `lib.${system}.mkBats { tap-dancer-go ? ... }` — function that returns
+  the full batman package set. The bats wrapper invokes
+  `fence --settings <cfg> -- bats <args>` for every test command;
+  callers can pass `--no-sandbox` at runtime to bypass fence.
+- `packages.${system}` — `default`, `batman`, `bats`, `bats-libs`, plus
+  the six bats helper libs and `batman-manpages` individually.
 - `checks.${system}.check-bats-libs-path` — regression test that
   `bats-libs.batsLibPath` is a valid `BATS_LIB_PATH` entry (no trailing
   `/share/bats` required of consumers).
@@ -60,13 +60,25 @@ just clean                 # rm -rf result result-batman result-bats-libs
 
 ### `nix/packages/batman.nix`
 
-The build expression. Single function taking `pkgs`, `src`, `sandcastle ?
-null`, `tap-dancer-go`, `fence`, `buildZxScriptFromFile`. Constructs the
-six helper libs, the batman zx script, the bats wrapper, and the
-manpages bundle. The bats wrapper is conditionally generated — when
-`sandcastle == null`, the `--no-sandbox` / `--allow-unix-sockets` /
-`--allow-local-binding` flags and the `if $sandbox` shell branch are
-omitted entirely.
+The build expression. Single function taking `pkgs`, `src`,
+`tap-dancer-go`, `fence`, `buildZxScriptFromFile`. Constructs the six
+helper libs, the batman zx script, the fence-backed bats wrapper, and
+the manpages bundle.
+
+The bats wrapper emits a fence config translating the historical
+sandcastle-shaped policy:
+
+- `filesystem.denyRead` blocks credential dirs (`~/.ssh`, `~/.aws`,
+  `~/.gnupg`, `~/.config`, `~/.local`, `~/.password-store`, `~/.kube`).
+- `filesystem.allowWrite` restricts writes to `/tmp` and
+  `/private/tmp`.
+- `filesystem.allowRead`/`allowExecute = ["/"]` so test processes can
+  run nix-store binaries normally; the security boundary is enforced
+  via the deny lists, not whitelisting.
+- `network.allowedDomains: []` denies all egress.
+- `command.useDefaults: false` so fence's built-in deny list (which
+  collaterally blocks coreutils via chroot detection) doesn't break
+  normal shell tools.
 
 ### `packages/batman/`
 
@@ -97,12 +109,25 @@ default overlay). Downstream flakes that consume this repo should
 `inputs.bats.inputs.nixpkgs.follows = "nixpkgs"` to keep the closure
 small.
 
-### Sandcastle is parameterized
+### Fence is the sole sandbox backend
 
-This repo intentionally does NOT depend on `sandcastle`. The bats wrapper
-is parameterized via `mkBats`. To get bob's historical sandboxed wrapper
-behavior, a downstream flake calls `mkBats` with its own sandcastle
-derivation.
+Earlier revisions of this wrapper accepted an optional `sandcastle`
+derivation to enable a sandcastle-wrapped `bats`. That parameter is
+gone — the wrapper now always uses fence for sandboxing. Known fence
+gaps relative to sandcastle:
+
+- `network.allowLocalBinding: false` is recognized in fence's config
+  schema but not seccomp-enforced today (fence's filter blocks
+  dangerous syscalls + TIOCSTI but not `bind()`). The matching
+  bats wrapper tests were removed pending
+  https://github.com/amarbel-llc/bats/issues/3.
+- No equivalent of sandcastle's `allowAllUnixSockets` toggle. The
+  wrapper still parses `--allow-unix-sockets` for CLI compat but it
+  is a no-op.
+
+`--query-sandbox` returns `fence` when the wrapper is invoked normally
+and `none` is intended for the unset case (consumers calling
+`bats_wrapper_sandbox_mode` from `common.bash` without a wrapper).
 
 ### Code style
 

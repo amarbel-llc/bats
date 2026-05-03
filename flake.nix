@@ -33,18 +33,15 @@
 
         mkBats =
           {
-            sandcastle ? null,
             tap-dancer-go ? tap.packages.${system}.tap-dancer-go,
           }:
           import ./nix/packages/batman.nix {
-            inherit pkgs sandcastle tap-dancer-go;
+            inherit pkgs tap-dancer-go;
             src = ./packages/batman;
             fence = pkgs.fence;
             buildZxScriptFromFile = pkgs.buildZxScriptFromFile;
           };
 
-        # Default package set: no sandcastle (sandbox parameterization
-        # is delegated to consumers that ship a sandcastle binary).
         batmanPkgs = mkBats { };
 
         checkBatsLibsPathPkg = import ./nix/packages/check-bats-libs-path.nix {
