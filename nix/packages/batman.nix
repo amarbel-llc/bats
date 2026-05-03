@@ -1,7 +1,6 @@
 {
   pkgs,
   src,
-  sandcastle ? null,
   tap-dancer-go,
   fence,
   buildZxScriptFromFile,
@@ -139,31 +138,28 @@ let
     passthru.batsLibPath = "${bats-libs}/share/bats";
   };
 
-  hasSandcastle = sandcastle != null;
-
   bats = pkgs.writeShellApplication {
     name = "bats";
-    runtimeInputs =
-      [
-        pkgs.bats
-        pkgs.coreutils
-        pkgs.gawk
-        pkgs.git
-        pkgs.parallel
-        pkgs.python3
-        tap-dancer-go
-      ]
-      ++ lib.optional hasSandcastle sandcastle;
-    # When sandcastle is null the sandbox/allow_* variables are parsed
-    # but unused (they exist so the CLI surface stays stable across
-    # sandboxed and non-sandboxed builds). SC2034 fires on those.
-    excludeShellChecks = lib.optionals (!hasSandcastle) [ "SC2034" ];
+    runtimeInputs = [
+      pkgs.bats
+      pkgs.coreutils
+      pkgs.gawk
+      pkgs.git
+      pkgs.parallel
+      pkgs.python3
+      tap-dancer-go
+      fence
+    ];
+    # `--allow-unix-sockets` is parsed for CLI compat but unused — fence
+    # has no equivalent of sandcastle's allowAllUnixSockets toggle.
+    excludeShellChecks = [ "SC2034" ];
     text = ''
-      # --query-sandcastle: report whether this wrapper was built with
-      # a sandcastle dependency. Used by the test suite to skip
-      # sandbox-behavior assertions when sandcastle is unavailable.
-      if [[ "''${1:-}" == "--query-sandcastle" ]]; then
-        echo "${if hasSandcastle then "true" else "false"}"
+      # --query-sandbox: report the active sandbox backend.
+      # Always "fence" since this build wraps every test command in
+      # `fence --settings <cfg> -- bats <args>` (unless --no-sandbox is
+      # passed at runtime, in which case the wrapper bypasses fence).
+      if [[ "''${1:-}" == "--query-sandbox" ]]; then
+        echo "fence"
         exit 0
       fi
 
@@ -186,6 +182,7 @@ let
             shift
             ;;
           --allow-unix-sockets)
+            # No fence equivalent; accepted as a no-op for CLI compat.
             allow_unix_sockets=true
             shift
             ;;
@@ -258,65 +255,67 @@ let
         fi
       }
 
-      ${
-        if hasSandcastle then
-          ''
-            if $sandbox; then
-              config="$(mktemp)"
-              trap 'rm -f "$config"' EXIT
+      if $sandbox; then
+        config="$(mktemp --suffix=.json)"
+        trap 'rm -f "$config"' EXIT
 
-              cat >"$config" <<SANDCASTLE_CONFIG
-            {
-              "filesystem": {
-                "denyRead": [
-                  "$HOME/.ssh",
-                  "$HOME/.aws",
-                  "$HOME/.gnupg",
-                  "$HOME/.config",
-                  "$HOME/.local",
-                  "$HOME/.password-store",
-                  "$HOME/.kube"
-                ],
-                "denyWrite": [],
-                "allowWrite": [
-                  "/tmp",
-                  "/private/tmp"
-                ]
-              },
-              "network": {
-                "allowedDomains": [],
-                "deniedDomains": []$(if $allow_unix_sockets; then echo ',
-                "allowAllUnixSockets": true'; fi)$(if $allow_local_binding; then echo ',
-                "allowLocalBinding": true'; fi)
-              }
-            }
-            SANDCASTLE_CONFIG
-
-                  sandcastle_args=()
-                  if $no_tempdir_cleanup; then
-                    sandcastle_args+=(--no-tempdir-cleanup)
-                    set -- --no-tempdir-cleanup "$@"
-                  fi
-
-                  sandcastle "''${sandcastle_args[@]}" --shell bash --config "$config" -- bats "$@" | filter_tap | reformat_tap
-            else
-              if $no_tempdir_cleanup; then
-                set -- --no-tempdir-cleanup "$@"
-              fi
-              bats "$@" | filter_tap | reformat_tap
-            fi
-          ''
-        else
-          # No sandcastle available: --no-sandbox / --allow-unix-sockets /
-          # --allow-local-binding are accepted as no-ops so callers can use
-          # the same CLI surface across sandboxed and non-sandboxed builds.
-          ''
-            if $no_tempdir_cleanup; then
-              set -- --no-tempdir-cleanup "$@"
-            fi
-            bats "$@" | filter_tap | reformat_tap
-          ''
+        # fence config: denyRead blocks credential dirs; allowWrite
+        # restricts writes to /tmp; empty allowedDomains denies all
+        # network egress; allowLocalBinding toggled by
+        # --allow-local-binding. allowRead/allowExecute kept broad so
+        # the test process can run nix-store binaries normally — the
+        # security boundary is enforced via denyRead. command.useDefaults
+        # is false so fence's built-in deny list (which collaterally
+        # blocks coreutils via chroot detection) does not interfere
+        # with normal shell tools.
+        #
+        # Note: fence's `network.allowLocalBinding: false` is a
+        # documented config field but is NOT seccomp-enforced today
+        # (fence's filter blocks dangerous syscalls + TIOCSTI but not
+        # bind()). Setting it false is forward-compatible — when fence
+        # learns to enforce it, this wrapper benefits automatically.
+        cat >"$config" <<FENCE_CONFIG
+      {
+        "filesystem": {
+          "allowRead": ["/"],
+          "allowExecute": ["/"],
+          "allowWrite": [
+            "/tmp",
+            "/private/tmp"
+          ],
+          "denyRead": [
+            "~/.ssh",
+            "~/.aws",
+            "~/.gnupg",
+            "~/.config",
+            "~/.local",
+            "~/.password-store",
+            "~/.kube"
+          ],
+          "denyWrite": []
+        },
+        "network": {
+          "allowedDomains": [],
+          "deniedDomains": [],
+          "allowLocalBinding": $allow_local_binding
+        },
+        "command": {
+          "useDefaults": false
+        }
       }
+      FENCE_CONFIG
+
+        if $no_tempdir_cleanup; then
+          set -- --no-tempdir-cleanup "$@"
+        fi
+
+        fence --settings "$config" -- bats "$@" | filter_tap | reformat_tap
+      else
+        if $no_tempdir_cleanup; then
+          set -- --no-tempdir-cleanup "$@"
+        fi
+        bats "$@" | filter_tap | reformat_tap
+      fi
     '';
   };
 

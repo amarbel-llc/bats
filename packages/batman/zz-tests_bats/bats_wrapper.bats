@@ -27,8 +27,8 @@ EOF
 }
 
 function bats_wrapper_denies_config_read { # @test
-  skip_unless_sandcastle
-  # Verify sandcastle replaces $HOME/.config with empty tmpfs.
+  skip_unless_sandbox
+  # Verify the sandbox blocks reads of $HOME/.config.
   # The inner test asserts the directory is empty or missing.
   cat >"${TEST_TMPDIR}/read_config.bats" <<'INNER'
 #! /usr/bin/env bats
@@ -226,55 +226,15 @@ EOF
   refute_line --regexp "^ok 1 "
 }
 
-function bats_wrapper_sandbox_denies_localhost_tcp_bind { # @test
-  skip_unless_sandcastle
-  cat >"${TEST_TMPDIR}/tcp_bind.bats" <<'INNER'
-#! /usr/bin/env bats
-function tcp_bind_ephemeral_port { # @test
-  python3 -c "
-import socket, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.bind(('127.0.0.1', 0))
-    port = s.getsockname()[1]
-    print(f'bound to port {port}')
-except OSError as e:
-    print(f'bind failed: {e}', file=sys.stderr)
-    sys.exit(1)
-finally:
-    s.close()
-"
-}
-INNER
-  run "$BATS_WRAPPER" --tap "${TEST_TMPDIR}/tcp_bind.bats"
-  assert_failure
-  assert_output --partial "not ok 1"
-}
-
-function bats_wrapper_allow_local_binding_permits_localhost_tcp_bind { # @test
-  skip_unless_sandcastle
-  cat >"${TEST_TMPDIR}/tcp_bind.bats" <<'INNER'
-#! /usr/bin/env bats
-function tcp_bind_ephemeral_port { # @test
-  python3 -c "
-import socket, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.bind(('127.0.0.1', 0))
-    port = s.getsockname()[1]
-    print(f'bound to port {port}')
-except OSError as e:
-    print(f'bind failed: {e}', file=sys.stderr)
-    sys.exit(1)
-finally:
-    s.close()
-"
-}
-INNER
-  run "$BATS_WRAPPER" --allow-local-binding --tap "${TEST_TMPDIR}/tcp_bind.bats"
-  assert_success
-  assert_output --partial "ok 1"
-}
+# bats_wrapper_sandbox_denies_localhost_tcp_bind and
+# bats_wrapper_allow_local_binding_permits_localhost_tcp_bind were
+# removed when the wrapper flipped from sandcastle to fence as its sole
+# sandbox backend. Sandcastle enforced "deny localhost TCP bind unless
+# --allow-local-binding" via the seccomp filter in gen-bind-block.c.
+# Fence's release accepts `network.allowLocalBinding: false` in its
+# config schema but does not enforce it — bind() is not in fence's
+# seccomp deny set today. Re-add these tests once that gap is closed
+# (see https://github.com/amarbel-llc/bats/issues/3).
 
 function bats_wrapper_hide_passing_preserves_plan_and_version { # @test
   cat >"${TEST_TMPDIR}/plan.bats" <<'EOF'

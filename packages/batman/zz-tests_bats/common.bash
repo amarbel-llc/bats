@@ -7,16 +7,24 @@ bats_load_library bats-emo
 
 require_bin BATMAN_BIN batman
 
-# Skip the current test unless the wrapped bats was built with a
-# sandcastle dependency. Tests that assert sandbox behavior call this
-# helper so they no-op cleanly in the sandcastle-less default build.
-skip_unless_sandcastle() {
+# Return the active sandbox backend name. Currently always "fence" or
+# "none" (when BATS_WRAPPER is unset). Backed by the wrapper's
+# --query-sandbox flag.
+bats_wrapper_sandbox_mode() {
   if [[ -z ''${BATS_WRAPPER:-} ]]; then
-    skip "BATS_WRAPPER not set"
+    echo "none"
+    return
   fi
-  local result
-  result="$("$BATS_WRAPPER" --query-sandcastle 2>/dev/null || true)"
-  if [[ $result != "true" ]]; then
-    skip "wrapper has no sandcastle"
+  "$BATS_WRAPPER" --query-sandbox 2>/dev/null || echo "none"
+}
+
+# Skip the current test unless the wrapped bats has any sandbox backend
+# active. Tests that assert sandbox behavior call this so they no-op
+# cleanly when BATS_WRAPPER points at a wrapper without sandboxing.
+skip_unless_sandbox() {
+  local mode
+  mode="$(bats_wrapper_sandbox_mode)"
+  if [[ $mode == "none" ]]; then
+    skip "wrapper has no sandbox backend"
   fi
 }
