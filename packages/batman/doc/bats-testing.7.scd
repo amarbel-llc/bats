@@ -322,7 +322,15 @@ test-tags *tags:
     bats --tap --filter-tags "{{tags}}" .
 ```
 
+# NIX-SANDBOX TEST LANES
+
+For flake-check integration, see *bats-lane*(7) — the build-support
+function that runs a bats suite against pre-built binaries inside the
+nix sandbox. *batsLane* is the recommended path for CI/check
+invocations; *test-batman-fence* (in this flake's justfile) is the
+recommended path for local iteration in a dev shell.
+
 # SEE ALSO
 
 *bats-assert*(7), *bats-assert-additions*(7), *bats-emo*(7),
-*bats-island*(7), *bats-support*(7), *tap-writer*(7)
+*bats-island*(7), *bats-lane*(7), *bats-support*(7), *tap-writer*(7)

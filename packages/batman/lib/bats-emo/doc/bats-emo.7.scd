@@ -84,4 +84,10 @@ setup_file() {
 
 # SEE ALSO
 
-*bats-testing*(7), *bats-island*(7), *bats-assert*(7)
+*bats-testing*(7), *bats-island*(7), *bats-assert*(7), *bats-lane*(7)
+
+For nix-sandboxed test lanes, *bats-lane*(7)'s *binaries* map and
+single-binary shortcut export exactly the env vars *require_bin*
+expects (e.g. *MYTOOL_BIN*). The two contracts are designed to
+compose: declare the binary once in *common.bash* via *require_bin*,
+inject it once in the flake's batsLane invocation.
