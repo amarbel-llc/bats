@@ -32,14 +32,6 @@ build-bats-libs:
 flake-check:
     nix flake check --keep-going
 
-# Run batman's own bats test suite via the WRAPPED bats from the build output.
-test-batman-bats:
-    @batman=$(nix build --no-link --print-out-paths .#default); \
-      BATS_WRAPPER=$batman/bin/bats \
-      BATMAN_BIN=$batman/bin/batman \
-      PATH="$batman/bin:$PATH" \
-      {{cmd_nix_dev}} just packages/batman/zz-tests_bats/test
-
 # Run batman.bats under PLAIN nixpkgs bats (filters /home/* dirs out of
 # PATH so any user-profile-installed wrapped `bats` does not shadow it).
 test-batman-fence:
@@ -61,7 +53,7 @@ test-batman-self-proof:
     nix build --no-link --print-out-paths .#checks.x86_64-linux.batman-self-proof
 
 # Aggregate batman test suite
-test-batman: test-batman-bats test-batman-fence test-batman-self-proof
+test-batman: test-batman-fence test-batman-self-proof
 
 # --- general --------------------------------------------------------------
 

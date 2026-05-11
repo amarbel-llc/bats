@@ -32,12 +32,12 @@ just fmt                   # shfmt formatting
 # Batman / bats-libs flake outputs
 just build-batman          # nix build .#default
 just build-bats-libs       # nix build .#bats-libs
-just flake-check           # nix flake check (runs check-bats-libs-path)
-just test-batman-bats      # batman zz-tests_bats/ via the wrapped bats
-just test-batman-fence     # batman.bats under plain nixpkgs bats
-just test-batman           # both batman test suites
-just run-batman <args>     # smoke-test the built batman binary
-just clean                 # rm -f result result-*
+just flake-check               # nix flake check (runs check-bats-libs-path + batman-self-proof)
+just test-batman-fence         # batman.bats under plain nixpkgs bats
+just test-batman-self-proof    # batsLane self-proof inside the nix sandbox
+just test-batman               # aggregate: test-batman-fence + test-batman-self-proof
+just run-batman <args>         # smoke-test the built batman binary
+just clean                     # rm -f result result-*
 ```
 
 ## Architecture

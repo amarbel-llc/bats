@@ -122,7 +122,7 @@
         };
 
         # Dev shell carries `just` plus the batman bundle so the
-        # justfile recipes (`test-batman-bats`, `test-batman-fence`)
+        # justfile recipes (`test-batman-fence`, `test-batman-self-proof`)
         # find the wrapped `bats` and the `batman` binary on PATH
         # without the caller needing to manage anything.
         devShells.default = pkgs.mkShell {
