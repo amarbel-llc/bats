@@ -160,7 +160,6 @@ let
         exit 0
       fi
 
-      bin_dirs=()
       sandbox=true
       allow_local_binding=false
       no_tempdir_cleanup=false
@@ -169,10 +168,6 @@ let
       bats_args=()
       while (( $# > 0 )); do
         case "$1" in
-          --bin-dir)
-            bin_dirs+=("$(realpath "$2")")
-            shift 2
-            ;;
           --no-sandbox)
             sandbox=false
             shift
@@ -201,11 +196,6 @@ let
         esac
       done
       set -- "''${bats_args[@]}"
-
-      # Prepend --bin-dir directories to PATH (leftmost = highest priority)
-      for (( i = ''${#bin_dirs[@]} - 1; i >= 0; i-- )); do
-        export PATH="''${bin_dirs[$i]}:$PATH"
-      done
 
       # Append batman's bats-libs to BATS_LIB_PATH (caller paths take precedence)
       export BATS_LIB_PATH="''${BATS_LIB_PATH:+$BATS_LIB_PATH:}${bats-libs}/share/bats"

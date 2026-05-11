@@ -19,7 +19,7 @@ require_bin() {
     fi
   elif [[ -n $cmd_name ]]; then
     if ! command -v "$cmd_name" &>/dev/null; then
-      echo "error: $cmd_name not found. Set $var_name or use --bin-dir" >&2
+      echo "error: $cmd_name not found. Set $var_name=<path> or put $cmd_name on PATH" >&2
       exit 1
     fi
   else

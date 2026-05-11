@@ -20,7 +20,6 @@ import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 
 type ParsedArgs = {
-  binDirs: string[];
   noTempdirCleanup: boolean;
   hidePassing: boolean;
   dryRun: boolean;
@@ -34,7 +33,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   const ours = dashIdx === -1 ? argv : argv.slice(0, dashIdx);
   const passthroughBase = dashIdx === -1 ? [] : argv.slice(dashIdx + 1);
 
-  const binDirs: string[] = [];
   const positional: string[] = [];
   let noTempdirCleanup = false;
   let hidePassing = false;
@@ -44,14 +42,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   for (let i = 0; i < ours.length; i++) {
     const a = ours[i];
     switch (a) {
-      case "--bin-dir": {
-        const v = ours[++i];
-        if (v === undefined) {
-          throw new Error("--bin-dir requires a value");
-        }
-        binDirs.push(v);
-        break;
-      }
       case "--no-tempdir-cleanup":
         noTempdirCleanup = true;
         break;
@@ -78,7 +68,6 @@ function parseArgs(argv: string[]): ParsedArgs {
     : passthroughBase;
 
   return {
-    binDirs,
     noTempdirCleanup,
     hidePassing,
     dryRun,
@@ -144,17 +133,6 @@ async function logDiagnostic(
   await fsp.appendFile(nodePath.join(dir, "batman.log"), `${ts} ${msg}\n`);
 }
 
-function buildPath(binDirs: string[]): string {
-  const existing = process.env.PATH ?? "";
-  // Leftmost = highest priority; preserve user-given order.
-  const prefix = binDirs
-    .map((d) => nodePath.resolve(d))
-    .join(nodePath.delimiter);
-  return prefix.length > 0
-    ? `${prefix}${nodePath.delimiter}${existing}`
-    : existing;
-}
-
 // hide-passing TAP filter: strip passing `ok N ...` lines and their YAML blocks.
 // Mirrors the awk used by the existing bats wrapper.
 function makeHidePassingFilter(): (chunk: string) => string {
@@ -204,20 +182,18 @@ async function runGroup(
   dir: string,
   files: string[],
   passthrough: string[],
-  pathEnv: string,
   hidePassing: boolean,
   diagnosticsStderr: boolean,
 ): Promise<number> {
   const cfg = nodePath.join(dir, "fence.jsonc");
   const fileArgs = files.map((f) => nodePath.join(dir, f));
-  const env = { ...process.env, PATH: pathEnv };
 
   return new Promise((resolve) => {
     const stdout = hidePassing ? "pipe" : "inherit";
     const child = spawn(
       "fence",
       ["--settings", cfg, "--", "bats", ...passthrough, ...fileArgs],
-      { stdio: ["inherit", stdout, "inherit"], env },
+      { stdio: ["inherit", stdout, "inherit"] },
     );
 
     if (hidePassing && child.stdout) {
@@ -264,14 +240,8 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const {
-    binDirs,
-    hidePassing,
-    dryRun,
-    diagnosticsStderr,
-    positional,
-    passthrough,
-  } = parsed;
+  const { hidePassing, dryRun, diagnosticsStderr, positional, passthrough } =
+    parsed;
 
   // Validate paths exist before discovery.
   for (const p of positional) {
@@ -308,15 +278,12 @@ async function main(): Promise<number> {
     }
   }
 
-  const pathEnv = buildPath(binDirs);
-
   let aggregate = 0;
   for (const [dir, files] of groups) {
     const code = await runGroup(
       dir,
       files,
       passthrough,
-      pathEnv,
       hidePassing,
       diagnosticsStderr,
     );

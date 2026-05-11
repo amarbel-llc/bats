@@ -60,11 +60,12 @@ directly.
 *common.bash* — loads bats-emo and calls *require_bin* for each binary
 under test. This is the single place where binary names are declared.
 
-*Justfile* — builds the binary and injects it via *--bin-dir*:
+*Justfile* — builds the binary and injects it via the env var declared
+in *common.bash* (or by prepending the build directory to *PATH*):
 
 ```
 test-bats: build-go
-    bats --bin-dir build/ zz-tests_bats/
+    MYTOOL_BIN=$(pwd)/build/mytool bats zz-tests_bats/
 ```
 
 This separation means adding a new binary to test requires changes in

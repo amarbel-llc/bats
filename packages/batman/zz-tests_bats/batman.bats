@@ -12,7 +12,7 @@ teardown() {
 }
 
 function batman_splits_argv_at_double_dash { # @test
-  run "$BATMAN_BIN" --dry-run --bin-dir foo "$FIXTURES" -- --filter X
+  run "$BATMAN_BIN" --dry-run --hide-passing "$FIXTURES" -- --filter X
   assert_success
   # Dry-run output should reflect the positional ($FIXTURES) but not the
   # post-`--` flags. The post-`--` flags would never produce GROUP lines.

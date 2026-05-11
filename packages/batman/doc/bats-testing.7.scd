@@ -138,11 +138,19 @@ This checks, in order:
 . Otherwise, look up *mytool* on *$PATH*.
 . If neither works, fail with a clear error message.
 
-The justfile provides the binary via *--bin-dir*:
+The justfile provides the binary by either setting the env var or
+adding the build directory to *PATH*:
 
 ```
 test-bats: build-go
-    bats --bin-dir build/ zz-tests_bats/
+    MYTOOL_BIN=$(pwd)/build/mytool bats zz-tests_bats/
+```
+
+or
+
+```
+test-bats: build-go
+    PATH=$(pwd)/build:$PATH bats zz-tests_bats/
 ```
 
 This makes tests implementation-agnostic — they work with Go, Rust, or
@@ -271,9 +279,6 @@ the real assertion. This prevents copy-paste errors.
 Batman's *bats* wrapper accepts these flags before the standard BATS
 arguments:
 
-*--bin-dir* _path_
-	Prepend _path_ to PATH (repeatable, leftmost = highest priority).
-
 *--no-sandbox*
 	Disable fence isolation.
 
@@ -295,11 +300,12 @@ arguments:
 
 # JUSTFILE INTEGRATION
 
-The root justfile delegates to the test-suite justfile:
+The root justfile delegates to the test-suite justfile, exporting the
+binary's location via the env var declared in *common.bash*:
 
 ```
 test-bats: build
-    bats --bin-dir build/ zz-tests_bats/
+    MYTOOL_BIN=$(pwd)/build/mytool bats zz-tests_bats/
 ```
 
 The test-suite justfile in *zz-tests_bats/* provides granular targets:
