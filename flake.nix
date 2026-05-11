@@ -104,6 +104,15 @@
             }
           ];
         };
+
+        # Container lane (FDR-0002): an alternate test sandbox built on
+        # podman + a nix-built OCI image. Sibling to batman-self-proof
+        # and test-batman-fence, not a replacement. Not exposed as a
+        # flake check because podman cannot run inside a nix builder.
+        containerLane = import ./nix/packages/container-lane.nix {
+          inherit pkgs batmanPkgs;
+          batmanTestsSrc = ./packages/batman/zz-tests_bats;
+        };
       in
       {
         lib = {
@@ -125,6 +134,20 @@
             batman
             batman-manpages
             ;
+          bats-lane-container-image = containerLane.image;
+          bats-lane-container = containerLane.runner;
+          batman-container-self-proof = containerLane.selfProof;
+        };
+
+        apps = {
+          bats-lane-container = {
+            type = "app";
+            program = "${containerLane.runner}/bin/bats-lane-container";
+          };
+          batman-container-self-proof = {
+            type = "app";
+            program = "${containerLane.selfProof}/bin/batman-container-self-proof";
+          };
         };
 
         checks = {

@@ -49,19 +49,22 @@ What it doesn't give:
 ### In
 
 - A flake package `bats-lane-container-image`: a nix-built OCI image
-  containing bats, bats-libs, batman, and **fence**. The bats source
-  tree is **not** baked in — it is bind-mounted at runtime.
+  containing plain bats, bats-libs, the batman orchestrator, git,
+  gnugrep, and basic shell utilities. **Fence is intentionally NOT
+  in the image** — the container is THE sandbox, see "No fence
+  inside" below. The bats source tree is **not** baked in — it is
+  bind-mounted at runtime.
 - A standalone runner `bats-lane-container` (`nix run`-able generic
   entry point) that handles `podman load` + `podman run`, including
   Darwin bootstrap via `podman machine`. Accepts a path to a bats
-  source tree to mount, plus optional `--filter-tags` and other
-  passthrough flags.
+  source tree to mount, plus optional test-file positional
+  arguments.
 - A separate `batman-container-self-proof` (script + flake package +
   justfile recipe `test-batman-container-self-proof`) that invokes
-  the runner against `packages/batman/zz-tests_bats`, analogous to
-  how `checks.${system}.batman-self-proof` exercises batsLane against
-  the same suite. This is the container-lane equivalent regression
-  of the nix-sandbox self-proof.
+  the runner against `packages/batman/zz-tests_bats` running
+  `batman.bats` and `island.bats` only (mirroring
+  `test-batman-fence`'s posture; `bats_wrapper.bats` is skipped
+  because it requires the fence-wrapped `BATS_WRAPPER`).
 - A justfile recipe `test-batman-container` that thin-wraps the
   generic runner for ad-hoc invocations.
 - A manpage section (in `bats-lane(7)`, or a new
@@ -90,38 +93,34 @@ What it doesn't give:
 
 `bats-lane-container-image` is a layered OCI image built by
 `dockerTools.buildLayeredImage`. The bats *source* is **not** in the
-image — only the runtime tools and binaries. Sketch:
+image — only the runtime tools and binaries. The image's tag is
+content-derived (no explicit `tag` argument; dockerTools fills in
+the hash), which lets the runner skip the (slow) podman load when
+the same closure is already loaded.
 
 ```nix
-batsLaneContainerImage = pkgs.dockerTools.buildLayeredImage {
+image = pkgs.dockerTools.buildLayeredImage {
   name = "amarbel-llc-bats-lane";
-  tag = "latest";
   contents = [
     pkgs.bash
     pkgs.coreutils
+    pkgs.gnugrep
     pkgs.git
     pkgs.parallel
     pkgs.bats
-    pkgs.fence            # included; see "Including fence" below
     batmanPkgs.bats-libs
-    batmanPkgs.default
+    batmanPkgs.batman
   ];
   config = {
     Env = [
       "BATS_LIB_PATH=${batmanPkgs.bats-libs.batsLibPath}"
-      "BATMAN_BIN=${batmanPkgs.default}/bin/batman"
-      "BATS_WRAPPER=${batmanPkgs.default}/bin/bats"
+      "BATMAN_BIN=${batmanPkgs.batman}/bin/batman"
       "PATH=/bin:/usr/bin"
     ];
     WorkingDir = "/tests";
   };
 };
 ```
-
-The image carries the same env-var contract batsLane uses (`BATMAN_BIN`,
-`BATS_WRAPPER`, `BATS_LIB_PATH`) so the test suite's `require_bin`
-calls in `common.bash` succeed identically inside and outside the
-container.
 
 #### Why mount, not bake
 
@@ -134,67 +133,91 @@ test trees without rebuilding the image. Reproducibility for *what
 ran* still flows from the image's content hash plus the source's
 git commit — both of which a CI invocation already records.
 
-#### Including fence
+#### No fence inside
 
-`pkgs.fence` is included in the image so the existing wrapper's
-`fence --settings ... -- bats ...` path works without modification
-inside the container. Because the container's namespace is now the
-*outer* namespace (no dev-shell bwrap above it), the bob#113 nested-
-bwrap failure mode that currently forces `skip` on three
-`batman.bats` tests does not apply here. Whether those tests
-actually pass inside the container is empirical and tracked as a
-follow-up (see "Verification" below); the FDR commits to including
-fence so the option is open, not to flipping the `skip`s in this
-work item.
+The image does **not** include `pkgs.fence` and does **not** use
+the fence-wrapped `batmanPkgs.default`. The container is the
+sandbox; per-test fence inside the container would be redundant
+*and* doesn't work — fence's `bwrap` collides with rootless
+podman's user namespace, producing `bwrap: Creating new namespace
+failed: Operation not permitted`. The same nested-bwrap family as
+bob#113, just with rootless podman playing the outer-bwrap role.
+
+Side benefit: dropping the fence-wrapped bats and its python3 /
+tap-dancer-go runtimeInputs cut the image from ~2.2 GB to ~564 MB.
+
+This decision intentionally narrows the scope of what the container
+lane can prove vs. the nix-sandbox self-proof (which still runs the
+fence-wrapped wrapper and exercises the full 26-test suite). See
+"Scope" above for what runs and "Verification" below for what's
+proven.
+
+#### `BATS_WRAPPER` is not set
+
+Without fence, there's no wrapper to point at, and
+`require_bin BATS_WRAPPER` (in `bats_wrapper.bats`'s setup) would
+fail. So the self-proof excludes that file, mirroring how
+`test-batman-fence` also runs only `batman.bats`.
+
+`BATMAN_BIN` is still set (to the zx orchestrator) because
+`batman.bats` invokes it directly via `--dry-run` and doesn't need
+fence to be present.
 
 ### Runner script
 
 `bats-lane-container` is the generic, `nix run`-able entry point.
-It builds (or reuses) the image, bootstraps `podman machine` on
-Darwin, mounts the caller-supplied bats source tree, and invokes
-`bats` inside the container. Sketch:
+It bootstraps `podman machine` on Darwin, conditionally loads the
+nix-built image (skipping the slow load when the same
+content-tagged image is already in podman's store), mounts the
+caller-supplied bats source tree at `/tests:ro`, and runs `bats`
+inside the container with `CWD=/tests` so file paths in the suite
+resolve cleanly. Sketch:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
+# Usage: bats-lane-container <bats-source-dir> [test-file ...]
+bats_src="$1"; shift
+bats_src="$(realpath "$bats_src")"
 
-# Usage: bats-lane-container <bats-source-dir> [bats-args...]
-bats_src="${1:?bats source directory required}"; shift
-
-image_path=$(nix build --no-link --print-out-paths .#bats-lane-container-image)
+bats_glob="$*"
+[ -z "$bats_glob" ] && bats_glob="*.bats"
 
 case "$(uname -s)" in
   Linux) ;;
   Darwin)
     podman machine inspect default >/dev/null 2>&1 || podman machine init
-    podman machine start 2>/dev/null || true
-    ;;
-  *)
-    echo "unsupported OS: $(uname -s)" >&2
-    exit 1
+    podman machine start >/dev/null 2>&1 || true
     ;;
 esac
 
-podman load -i "$image_path"
-podman run \
+# Skip the slow load (~minutes on a 500+ MB tarball) when the
+# content-tagged image is already loaded.
+if ! podman image exists "${imageRef}" 2>/dev/null; then
+  podman load -i "${imagePath}" >/dev/null
+fi
+
+exec podman run \
   --rm \
   --network none \
+  --tmpfs /tmp \
   --volume "$bats_src:/tests:ro" \
-  amarbel-llc-bats-lane:latest \
-  bats /tests "$@"
+  "${imageRef}" \
+  bash -c "cd /tests && bats $bats_glob"
 ```
 
 ### batman-container-self-proof
 
-A separate runner that pins `bats-lane-container` to batman's own
-test tree (`packages/batman/zz-tests_bats`). Conceptually:
+A separate `writeShellApplication` that pins `bats-lane-container`
+to batman's own test tree and explicitly enumerates the test files
+that don't depend on the fence wrapper. Conceptually:
 
 ```bash
-#!/usr/bin/env bash
-exec "$(dirname "$0")/bats-lane-container" \
-  "$(nix path:.)/packages/batman/zz-tests_bats" \
-  "$@"
+exec bats-lane-container ${batmanTestsSrc} batman.bats island.bats
 ```
+
+`bats_wrapper.bats` is intentionally excluded — without
+`BATS_WRAPPER` (which we don't set, since fence is not in the
+image), its `require_bin BATS_WRAPPER` setup would fail. This
+mirrors `test-batman-fence`'s posture.
 
 Exposed as:
 
@@ -206,9 +229,8 @@ Exposed as:
 
 This is the container-lane analogue of
 `checks.${system}.batman-self-proof`. It cannot itself be a flake
-check (same reason: podman cannot run in a builder), but it is the
-canonical "does this lane still work against batman's own tests?"
-invocation.
+check (podman cannot run in a builder), but it is the canonical
+"does this lane still work against batman's own tests?" invocation.
 
 ### Justfile recipes
 
@@ -270,40 +292,49 @@ until podman setup proves portable across consumer machines).
 ## Verification
 
 `batman-container-self-proof` is the primary regression. It runs
-batman's `zz-tests_bats` suite inside the container and asserts
-that bats exits 0 (i.e., every assertion passes, every `skip` is
-acknowledged). The criteria mirror `batman-self-proof`:
+`batman.bats` and `island.bats` inside the container and asserts
+that bats exits 0 (every assertion passes, every `skip` is
+acknowledged).
 
-- All 26 tests in the suite execute to completion.
-- The expected `skip`s for bob#113 still skip (until and unless a
-  follow-up investigation flips them — see "Follow-ups").
-- The container exits cleanly (no leaked podman processes, no
-  un-deleted images).
+Empirical baseline at landing time: **16/16 tests pass** (13 active
++ 3 self-skipped). The skips are the three fence-spawning tests in
+`batman.bats` that the suite itself marks with `# skip` for bob#113;
+they remain skipped here because fence isn't in the container at all.
 
-Beyond that, a few host-level checks are worth running once at
-implementation time and not making part of the recurring proof:
+One-shot acceptance checks, run once at implementation time and
+**confirmed**:
 
-- Confirm `--network none` actually denies outbound connections
-  inside the container (e.g., `curl https://example.com` returns a
-  network error, not a 200).
-- Confirm the mounted source is read-only (writes from inside the
-  container fail with EROFS).
-- Confirm the rootfs reflects the image's nix-store contents, not
-  the host's.
+- `--network none` actually denies outbound connections. `bash -c
+  'echo > /dev/tcp/93.184.216.34/443'` inside the container returns
+  `Network is unreachable`. Kernel-enforced, not config-only.
+- The mounted source is read-only. `touch /tests/probe` returns
+  `Read-only file system`.
+- The rootfs is the image's. `/home` is absent, `/etc/passwd` is
+  absent, and `command -v bats` resolves to a `/nix/store/...` path
+  from the image. None of the host's userland is visible.
 
-These are one-shot acceptance checks, not regression tests.
+These are not part of the recurring proof — they verify *that the
+sandbox primitive is what we claimed*, which only changes if the
+runner's `podman run` flags change.
 
 ## Follow-ups (not in scope here)
 
-- **Re-evaluate the bob#113 `skip`s under the container lane.**
-  Inside the container, fence's bwrap is the only bwrap in the
-  stack (no dev-shell bwrap above). The three currently-skipped
-  tests in `batman.bats` may pass there. Worth a separate
-  investigation; if they do, the skips can be lifted in the
-  container-lane self-proof while remaining in the dev-shell lane.
 - **Inner-sandbox swap (FDR-0003 candidate).** Replace fence with
   podman as the per-test isolation primitive. This is the larger
   change deferred from this FDR.
+- **Shrink the image further.** It's ~564 MB after the
+  no-fence/no-wrapper decision (down from ~2.2 GB with them).
+  Batman's zx orchestrator still pulls node + fence transitively
+  via its `runtimeInputs`; that's the next factor to attack if we
+  ever care to slim further.
+- **Re-evaluate the bob#113 `skip`s.** The suite's own `skip` lines
+  are conservative — under a clean container with no fence at all,
+  those tests can't possibly spawn fence and so the original
+  failure mode doesn't apply. But the tests *do* try to invoke
+  fence, so without it they'd fail rather than skip-cleanly. Lifting
+  the skips requires teaching the suite that "fence absent =
+  acceptable" (e.g., a new `skip_unless_fence` helper). Worth a
+  separate change.
 - **Pushing the image to a registry / multi-arch builds.** Only
   worth doing if external CI consumers ask for it.
 

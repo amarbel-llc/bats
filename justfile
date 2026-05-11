@@ -52,6 +52,19 @@ run-batman *args:
 test-batman-self-proof:
     nix build --no-link --print-out-paths .#checks.x86_64-linux.batman-self-proof
 
+# Run batman's tests inside a podman container built from a nix OCI
+# image (the container lane). Sibling to test-batman-self-proof and
+# test-batman-fence, not part of the `test-batman` aggregate. Requires
+# podman on the host (on Darwin, also `podman machine`).
+# See FDR-0002 (packages/batman/docs/features/0002-podman-container-lane.md).
+test-batman-container-self-proof:
+    nix run .#batman-container-self-proof
+
+# Generic ad-hoc invocation of the container lane against an arbitrary
+# bats source tree. Usage: `just test-batman-container ./path/to/zz-tests_bats`.
+test-batman-container *args:
+    nix run .#bats-lane-container -- {{args}}
+
 # Aggregate batman test suite
 test-batman: test-batman-fence test-batman-self-proof
 

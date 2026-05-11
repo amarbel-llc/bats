@@ -330,7 +330,12 @@ nix sandbox. *batsLane* is the recommended path for CI/check
 invocations; *test-batman-fence* (in this flake's justfile) is the
 recommended path for local iteration in a dev shell.
 
+For a third sandbox primitive — bats inside a podman container with
+kernel-enforced netns and a controllable rootfs — see
+*bats-lane-container*(7).
+
 # SEE ALSO
 
 *bats-assert*(7), *bats-assert-additions*(7), *bats-emo*(7),
-*bats-island*(7), *bats-lane*(7), *bats-support*(7), *tap-writer*(7)
+*bats-island*(7), *bats-lane*(7), *bats-lane-container*(7),
+*bats-support*(7), *tap-writer*(7)

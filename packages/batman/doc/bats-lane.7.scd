@@ -322,5 +322,5 @@ to consume the function from a downstream flake.
 
 # SEE ALSO
 
-*bats-testing*(7), *bats-emo*(7), *bats-island*(7), *bats-assert*(7),
-*bats-support*(7)
+*bats-testing*(7), *bats-lane-container*(7), *bats-emo*(7),
+*bats-island*(7), *bats-assert*(7), *bats-support*(7)
