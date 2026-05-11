@@ -66,6 +66,33 @@
           inherit pkgs;
           bats-libs = batmanPkgs.bats-libs;
         };
+
+        # Self-proof: run batman's own bats suite via the same batsLane
+        # builder this repo exports. BATMAN_BIN + BATS_WRAPPER both point
+        # at batmanPkgs.default so all three .bats files (batman.bats,
+        # bats_wrapper.bats, island.bats) find the binaries they need.
+        # Uses plain pkgs.bats (batsLane's default) as the test runner;
+        # the wrapper-asserting tests in bats_wrapper.bats invoke the
+        # fence-wrapped bats themselves via $BATS_WRAPPER.
+        batmanSelfProof = batsLaneLib.batsLane {
+          name = "batman-self-proof";
+          batsSrc = ./packages/batman/zz-tests_bats;
+          binaries = {
+            BATMAN_BIN = {
+              base = batmanPkgs.default;
+              name = "batman";
+            };
+            BATS_WRAPPER = {
+              base = batmanPkgs.default;
+              name = "bats";
+            };
+          };
+          batsLibPath = [ batmanPkgs.bats-libs.batsLibPath ];
+          # bats-island's setup_test_home / setup_test_repo helpers
+          # shell out to `git` (init + config). The nix builder PATH
+          # doesn't include git by default, so provide it explicitly.
+          nativeBuildInputs = [ pkgs.git ];
+        };
       in
       {
         lib = {
@@ -91,6 +118,7 @@
 
         checks = {
           check-bats-libs-path = checkBatsLibsPathPkg;
+          batman-self-proof = batmanSelfProof;
         };
 
         # Dev shell carries `just` plus the batman bundle so the

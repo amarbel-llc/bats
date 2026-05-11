@@ -52,6 +52,14 @@ test-batman-fence:
 run-batman *args:
     @batman=$(nix build --no-link --print-out-paths .#default); $batman/bin/batman {{args}}
 
+# Run the batsLane self-proof: batman's own bats suite executed via the
+# batsLane builder this repo exports, inside the nix sandbox. Picks up
+# all three zz-tests_bats/*.bats files with BATMAN_BIN and BATS_WRAPPER
+# pointed at the built batman bundle. Also runs as part of
+# `just flake-check`.
+test-batman-self-proof:
+    nix build --no-link --print-out-paths .#checks.x86_64-linux.batman-self-proof
+
 # Aggregate batman test suite
 test-batman: test-batman-bats test-batman-fence
 
