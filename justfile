@@ -61,7 +61,7 @@ test-batman-self-proof:
     nix build --no-link --print-out-paths .#checks.x86_64-linux.batman-self-proof
 
 # Aggregate batman test suite
-test-batman: test-batman-bats test-batman-fence
+test-batman: test-batman-bats test-batman-fence test-batman-self-proof
 
 # --- general --------------------------------------------------------------
 
