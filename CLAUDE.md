@@ -49,7 +49,16 @@ just clean                 # rm -f result result-*
 - `lib.${system}.mkBats { tap-dancer-go ? ... }` — function that returns
   the full batman package set. The bats wrapper invokes
   `fence --settings <cfg> -- bats <args>` for every test command;
-  callers can pass `--no-sandbox` at runtime to bypass fence.
+  callers can pass `--no-sandbox` at runtime to bypass fence. The
+  returned record also includes `batsLane` (see below) so callers can
+  reach it through the bundle without a second flake lookup.
+- `lib.${system}.batsLane { base; batsSrc; binaryName; ... }` — generic
+  build-support helper, copied from `amarbel-llc/nixpkgs`'s
+  `pkgs/build-support/bats-test`. Runs a bats integration suite against
+  pre-built binaries inside the nix sandbox; defaults to plain
+  `pkgs.bats`. Consumers wanting fence sandboxing pass
+  `bats = batmanPkgs.bats` explicitly. The same function is also
+  available as `(mkBats { }).batsLane`.
 - `packages.${system}` — `default`, `batman`, `bats`, `bats-libs`, plus
   the six bats helper libs and `batman-manpages` individually.
 - `checks.${system}.check-bats-libs-path` — regression test that
@@ -57,6 +66,18 @@ just clean                 # rm -f result result-*
   `/share/bats` required of consumers).
 - `devShells.${system}.default` — the bats-core development shell
   (predates the batman additions).
+
+### `nix/packages/bats-lane.nix`
+
+The `batsLane` builder, lifted verbatim from `amarbel-llc/nixpkgs`'s
+`pkgs/build-support/bats-test/default.nix`. Standalone function taking
+`lib`, `runCommand`, `bats`, `parallel`; produces a `runCommand`
+derivation that stages a bats source tree, exports caller-named env
+vars pointing at one or more pre-built binaries, optionally extends
+`BATS_LIB_PATH`, and runs bats with an optional `--filter-tags`
+expression. Output is a stamp file. See the file's header docstring for
+the full argument surface and the `binaries` / single-binary-shortcut
+forms.
 
 ### `nix/packages/batman.nix`
 

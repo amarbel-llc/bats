@@ -31,15 +31,33 @@
           overlays = [ nixpkgs.overlays.default ];
         };
 
+        # batsLane is a generic build-support helper for running bats
+        # suites against pre-built binaries inside the nix sandbox.
+        # Exposed at both lib.${system}.batsLane and (mkBats { }).batsLane;
+        # both forms reference the same function and default to plain
+        # pkgs.bats. Consumers wanting fence sandboxing pass
+        # `bats = batmanPkgs.bats` explicitly.
+        batsLaneLib = import ./nix/packages/bats-lane.nix {
+          inherit (pkgs)
+            lib
+            runCommand
+            bats
+            parallel
+            ;
+        };
+
         mkBats =
           {
             tap-dancer-go ? tap.packages.${system}.tap-dancer-go,
           }:
-          import ./nix/packages/batman.nix {
+          (import ./nix/packages/batman.nix {
             inherit pkgs tap-dancer-go;
             src = ./packages/batman;
             fence = pkgs.fence;
             buildZxScriptFromFile = pkgs.buildZxScriptFromFile;
+          })
+          // {
+            inherit (batsLaneLib) batsLane;
           };
 
         batmanPkgs = mkBats { };
@@ -52,6 +70,7 @@
       {
         lib = {
           inherit mkBats;
+          inherit (batsLaneLib) batsLane;
         };
 
         packages = {
