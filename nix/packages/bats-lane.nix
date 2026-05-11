@@ -192,9 +192,16 @@ let
 
       testFilesStr = lib.concatStringsSep " " testFiles;
 
+      # `dest` may include parent directories (e.g.
+      # "subdir/foo.lua"); ensure the parent exists before cp so
+      # nested layouts work. The flat case is unaffected — `dirname`
+      # of a bare filename is ".", and `mkdir -p stage/.` is a no-op.
       extraStagingCommands =
         lib.concatMapStringsSep "\n"
-          (entry: "cp ${entry.src} stage/${entry.dest}")
+          (entry: ''
+            mkdir -p "stage/$(dirname ${entry.dest})"
+            cp ${entry.src} stage/${entry.dest}
+          '')
           extraStagedFiles;
     in
     runCommand derivationName

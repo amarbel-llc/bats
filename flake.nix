@@ -92,6 +92,17 @@
           # shell out to `git` (init + config). The nix builder PATH
           # doesn't include git by default, so provide it explicitly.
           nativeBuildInputs = [ pkgs.git ];
+          # Regression for issue #10: extraStagedFiles with a `dest`
+          # containing a parent dir previously failed because the
+          # staging hook did not `mkdir -p` the parent. The staged
+          # file is unused by the suite — its existence at this path
+          # at build time is the test.
+          extraStagedFiles = [
+            {
+              src = ./packages/batman/doc/bats-lane.7.scd;
+              dest = "regression-issue-10/bats-lane.7.scd";
+            }
+          ];
         };
       in
       {
