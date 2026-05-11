@@ -58,8 +58,10 @@ EOF
 
 function bats_wrapper_prepends_bin_dir_to_path { # @test
   mkdir -p "${TEST_TMPDIR}/fake-bin"
+  # /bin/sh, not #!/usr/bin/env bash: nix builders have /bin/sh but no
+  # /usr/bin, so the env-resolved shebang would fail under batsLane.
   cat >"${TEST_TMPDIR}/fake-bin/my-tool" <<'EOF'
-#!/usr/bin/env bash
+#!/bin/sh
 echo "fake-tool-output"
 EOF
   chmod +x "${TEST_TMPDIR}/fake-bin/my-tool"
@@ -79,12 +81,13 @@ INNER
 
 function bats_wrapper_supports_multiple_bin_dirs { # @test
   mkdir -p "${TEST_TMPDIR}/bin-a" "${TEST_TMPDIR}/bin-b"
+  # /bin/sh shebang: see bats_wrapper_prepends_bin_dir_to_path above.
   cat >"${TEST_TMPDIR}/bin-a/tool-a" <<'EOF'
-#!/usr/bin/env bash
+#!/bin/sh
 echo "from-a"
 EOF
   cat >"${TEST_TMPDIR}/bin-b/tool-b" <<'EOF'
-#!/usr/bin/env bash
+#!/bin/sh
 echo "from-b"
 EOF
   chmod +x "${TEST_TMPDIR}/bin-a/tool-a" "${TEST_TMPDIR}/bin-b/tool-b"
@@ -107,8 +110,9 @@ INNER
 
 function bats_wrapper_bin_dir_after_bats_flags { # @test
   mkdir -p "${TEST_TMPDIR}/fake-bin"
+  # /bin/sh shebang: see bats_wrapper_prepends_bin_dir_to_path above.
   cat >"${TEST_TMPDIR}/fake-bin/my-tool" <<'EOF'
-#!/usr/bin/env bash
+#!/bin/sh
 echo "fake-tool-output"
 EOF
   chmod +x "${TEST_TMPDIR}/fake-bin/my-tool"
