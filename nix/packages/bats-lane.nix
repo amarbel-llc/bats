@@ -34,10 +34,17 @@
   runCommand,
   bats,
   parallel,
+  # Optional default for `tap-dancer-go`, the derivation that ships the
+  # `tap-dancer` binary used by `emitNdjson`. Callers that never set
+  # `emitNdjson = true` can leave this null. flake.nix in this repo passes
+  # the real derivation so downstream consumers can flip `emitNdjson` per
+  # lane without re-importing this file.
+  tap-dancer-go ? null,
 }:
 
 let
   defaultBats = bats;
+  defaultTapDancerGo = tap-dancer-go;
 
   # Sanitize a bats `--filter-tags` expression for use as a derivation
   # name suffix. Replaces shell-unfriendly characters with `_`.
@@ -135,6 +142,26 @@ let
 
       # Extra build-time tools the bats helpers need (jq, curl, etc.).
       nativeBuildInputs ? [ ],
+
+      # Opt-in: capture the bats TAP-14 stream and convert it to NDJSON
+      # alongside the run. When true, `$out` becomes a DIRECTORY containing
+      # `run.tap`, `run.ndjson`, and `exit_code` (the bats exit status as a
+      # one-line decimal). When false (default), `$out` remains a single
+      # stamp file as before. Existing consumers that `stat result` as a
+      # file are unaffected unless they opt in.
+      #
+      # Requires `tap-dancer-go` either as a top-level arg of this file
+      # (the default plumbed by flake.nix) or as a per-call override
+      # `tapDancerGo = ...`. When both are null, this builder throws.
+      #
+      # The NDJSON schema is defined in amarbel-llc/tap, RFC 0001
+      # (`docs/rfcs/0001-test-result-ndjson-schema.md`).
+      emitNdjson ? false,
+
+      # Per-call override of the `tap-dancer-go` derivation used when
+      # `emitNdjson = true`. Falls back to the top-level `tap-dancer-go`
+      # arg of this file. Ignored when `emitNdjson = false`.
+      tapDancerGo ? defaultTapDancerGo,
     }:
     let
       # Single-binary shortcut synthesizes into the multi-binary form
@@ -203,25 +230,30 @@ let
             cp ${entry.src} stage/${entry.dest}
           '')
           extraStagedFiles;
-    in
-    runCommand derivationName
-      {
-        # parallel is required by `bats --jobs` (>1); included
-        # unconditionally so consumers don't get a runtime
-        # "parallel: command not found" surprise.
-        nativeBuildInputs = nativeBuildInputs ++ [ parallel ];
-      }
-      ''
-        mkdir -p stage/zz-tests_bats
-        cp -r ${batsSrc}/* stage/zz-tests_bats/
-        chmod -R u+w stage
 
-        ${extraStagingCommands}
+      # When emitNdjson is on we force bats to emit `tap13` — the
+      # tap13 formatter is what gives us YAML diagnostic blocks on
+      # failures, which format-ndjson lifts into the record's
+      # `diagnostic` / `output` fields. bats-core's --tap formatter
+      # produces neither the YAML blocks nor a TAP version header, so
+      # the resulting NDJSON records have null diagnostics.
+      #
+      # Honor a caller-supplied formatter in `extraBatsArgs` rather
+      # than override it — if the consumer asked for junit or a
+      # custom formatter, that's their call (format-ndjson will fail
+      # cleanly on unexpected input).
+      callerSetsFormatter =
+        builtins.any
+          (a: a == "--tap" || a == "-t" || a == "--formatter" || a == "-F" || a == "--output")
+          extraBatsArgs;
+      formatterFlag =
+        if emitNdjson && !callerSetsFormatter then "--formatter tap13" else "";
 
-        ${binaryExports}
-        ${libPathExport}
-        ${extraEnvExports}
+      ndjsonInputs = lib.optionals emitNdjson [ tapDancerGo ];
 
+      # Stamp-file form (back-compat): bats failure → derivation failure;
+      # $out is an empty regular file on success.
+      stampInvocation = ''
         cd stage/zz-tests_bats
         ${bats}/bin/bats \
           --jobs $NIX_BUILD_CORES \
@@ -231,6 +263,75 @@ let
 
         touch $out
       '';
+
+      # NDJSON form: $out is a directory carrying `run.raw.tap`,
+      # `run.tap`, `run.ndjson`, and `exit_code`. The pipeline is:
+      #
+      #   bats --formatter tap13 ...  → run.raw.tap   (TAP-13 + YAML)
+      #   tap-dancer reformat         → run.tap       (TAP-14 header prepended)
+      #   tap-dancer format-ndjson    → run.ndjson    (per-test NDJSON records)
+      #
+      # We disable errexit around the bats call so a failed test run
+      # still gets converted to NDJSON before the derivation exits
+      # with the bats status. On bats failure the directory is only
+      # preserved via `nix build --keep-failed`. The bats exit status
+      # is the gating signal; reformat/format-ndjson exit codes are
+      # ignored so we don't double-fail or mask the bats outcome.
+      ndjsonInvocation = ''
+        mkdir -p "$out"
+        cd stage/zz-tests_bats
+        set +o errexit
+        ${bats}/bin/bats \
+          --jobs $NIX_BUILD_CORES \
+          ${filterFlag} \
+          ${extraBatsArgsStr} \
+          ${formatterFlag} \
+          ${testFilesStr} \
+          > "$out/run.raw.tap"
+        bats_status=$?
+        set -o errexit
+        ${tapDancerGo}/bin/tap-dancer reformat \
+          < "$out/run.raw.tap" > "$out/run.tap" || cp "$out/run.raw.tap" "$out/run.tap"
+        ${tapDancerGo}/bin/tap-dancer format-ndjson \
+          < "$out/run.tap" > "$out/run.ndjson" || true
+        echo "$bats_status" > "$out/exit_code"
+        # Echo the NDJSON to stderr between sentinel markers so the
+        # nix builder log carries the captured records inline. On
+        # failure, `nix build` prints the build-log tail to the user
+        # automatically; for any run, `nix log <drv>` retrieves the
+        # full log including this block. Agents extracting the NDJSON
+        # programmatically can sed/awk between the BEGIN/END markers.
+        printf '%s\n' '>>> BATSLANE NDJSON BEGIN <<<' >&2
+        cat "$out/run.ndjson" >&2
+        printf '%s\n' '>>> BATSLANE NDJSON END <<<' >&2
+        exit "$bats_status"
+      '';
+
+      batsInvocation = if emitNdjson then ndjsonInvocation else stampInvocation;
+    in
+    if emitNdjson && tapDancerGo == null then
+      throw "testers.batsLane: emitNdjson = true requires `tap-dancer-go` (top-level arg) or `tapDancerGo` (per-call override) to be set"
+    else
+      runCommand derivationName
+        {
+          # parallel is required by `bats --jobs` (>1); included
+          # unconditionally so consumers don't get a runtime
+          # "parallel: command not found" surprise.
+          nativeBuildInputs = nativeBuildInputs ++ [ parallel ] ++ ndjsonInputs;
+        }
+        ''
+          mkdir -p stage/zz-tests_bats
+          cp -r ${batsSrc}/* stage/zz-tests_bats/
+          chmod -R u+w stage
+
+          ${extraStagingCommands}
+
+          ${binaryExports}
+          ${libPathExport}
+          ${extraEnvExports}
+
+          ${batsInvocation}
+        '';
 
 in
 {

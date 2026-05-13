@@ -68,6 +68,19 @@ test-batman-container *args:
 # Aggregate batman test suite
 test-batman: test-batman-fence test-batman-self-proof
 
+# --- debug ----------------------------------------------------------------
+
+# Build the artificial-failure NDJSON demo and print only the NDJSON
+# block from the build log. The build deliberately fails (one of the
+# demo's bats cases is `false`); the batsLane `emitNdjson` script
+# echoes the captured records to stderr between sentinel markers, so
+# `sed` between them is all we need. See bats-lane(7) "NDJSON OUTPUT".
+# [group: debug]
+test-batman-ndjson-demo:
+    -nix build .#batman-ndjson-demo 2>&1 \
+      | sed -n '/BATSLANE NDJSON BEGIN/,/BATSLANE NDJSON END/p' \
+      | sed '1d;$d'
+
 # --- general --------------------------------------------------------------
 
 # Clean stray result symlinks (if any leaked from past `nix build -o ...` runs)

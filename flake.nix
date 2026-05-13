@@ -44,6 +44,10 @@
             bats
             parallel
             ;
+          # Enables per-lane `emitNdjson = true` opt-in without forcing
+          # callers to re-import the file with their own tap-dancer
+          # derivation. Same input as the bats wrapper at line 51.
+          tap-dancer-go = tap.packages.${system}.tap-dancer-go;
         };
 
         mkBats =
@@ -77,6 +81,15 @@
         batmanSelfProof = batsLaneLib.batsLane {
           name = "batman-self-proof";
           batsSrc = ./packages/batman/zz-tests_bats;
+          # Enumerate the self-proof's bats files explicitly so artificial
+          # demo files in the same directory (e.g. `ndjson_failure_demo.bats`,
+          # consumed only by `batmanNdjsonDemo`) don't get picked up by the
+          # default `*.bats` glob and break this check.
+          testFiles = [
+            "batman.bats"
+            "bats_wrapper.bats"
+            "island.bats"
+          ];
           binaries = {
             BATMAN_BIN = {
               base = batmanPkgs.default;
@@ -113,6 +126,31 @@
           inherit pkgs batmanPkgs;
           batmanTestsSrc = ./packages/batman/zz-tests_bats;
         };
+
+        # NDJSON prototype: drives the artificial-failure suite through
+        # the new `emitNdjson = true` codepath in batsLane. Always fails
+        # to build (the demo suite contains a deliberately failing test),
+        # so it is exposed only as a `package` — NOT a `check` — and
+        # users inspect the captured artifacts via
+        # `nix build .#batman-ndjson-demo --keep-failed`. See FDR/RFC
+        # cross-reference in `packages/batman/doc/bats-lane.7.scd`.
+        batmanNdjsonDemo = batsLaneLib.batsLane {
+          name = "batman-ndjson-demo";
+          batsSrc = ./packages/batman/zz-tests_bats;
+          testFiles = [ "ndjson_failure_demo.bats" ];
+          binaries = {
+            BATMAN_BIN = {
+              base = batmanPkgs.default;
+              name = "batman";
+            };
+            BATS_WRAPPER = {
+              base = batmanPkgs.default;
+              name = "bats";
+            };
+          };
+          batsLibPath = [ batmanPkgs.bats-libs.batsLibPath ];
+          emitNdjson = true;
+        };
       in
       {
         lib = {
@@ -137,6 +175,7 @@
           bats-lane-container-image = containerLane.image;
           bats-lane-container = containerLane.runner;
           batman-container-self-proof = containerLane.selfProof;
+          batman-ndjson-demo = batmanNdjsonDemo;
         };
 
         apps = {

@@ -14,7 +14,9 @@ derivation which:
   pre-built binaries.
 . Optionally extends *BATS_LIB_PATH* with bats-libs entries.
 . Runs *bats* with an optional *--filter-tags* expression.
-. Touches an output stamp file on success.
+. Touches an output stamp file on success, or — with *emitNdjson =
+  true* — emits a directory carrying the raw TAP, a TAP-14 reformat,
+  an NDJSON conversion, and the bats exit code.
 
 It is the nix-sandbox equivalent of dev-shell test runners like
 *test-batman-fence* (see this flake's *justfile*). Downstream flakes
@@ -177,6 +179,83 @@ One of:
 ```
 testFiles = [ "current_version/*.bats" "previous_versions/main.bats" ];
 ```
+
+# NDJSON OUTPUT (EXPERIMENTAL)
+
+*emitNdjson*
+	A bool (default false). When true, captures the bats TAP stream
+	and converts it to NDJSON for agent-friendly failure triage.
+	Requires *tap-dancer-go* either as a top-level arg of the
+	imported file (the default plumbed by this repo's *flake.nix*)
+	or as a per-call override *tapDancerGo = <derivation>*.
+
+	The pipeline when emitNdjson is on:
+
+```
+bats --formatter tap13 ...      → run.raw.tap   (TAP-13 + YAML diagnostics)
+tap-dancer reformat             → run.tap       (TAP-14 with version header)
+tap-dancer format-ndjson        → run.ndjson    (per-test NDJSON records)
+```
+
+	The TAP-13 formatter is selected automatically when no
+	formatter is supplied via *extraBatsArgs*; callers passing
+	their own *--formatter* / *--tap* are honored as-is.
+
+*tapDancerGo*
+	A derivation override (default: the top-level *tap-dancer-go*
+	passed when this file is imported). Ignored unless
+	*emitNdjson = true*. Use this to pin a specific *tap-dancer-go*
+	revision for one lane without affecting siblings.
+
+# OUTPUT LAYOUT
+
+When *emitNdjson = false* (the default), *$out* is a single empty
+regular file — a stamp signaling that bats succeeded. Consumers can
+treat *result* as a file and *stat* / hash it normally.
+
+When *emitNdjson = true*, *$out* is a *directory* containing:
+
+```
+run.raw.tap   # bats's raw TAP-13 output (pre-reformat)
+run.tap       # TAP-14 with version header (tap-dancer reformat)
+run.ndjson    # one JSON record per test + a final summary record
+exit_code     # bats's exit status as a one-line decimal
+```
+
+Existing consumers that *stat result* expecting a regular file will
+break under *emitNdjson = true* — they must opt in deliberately and
+update their result-handling.
+
+When bats fails (one or more tests not ok), the derivation exits
+with bats's status and *nix* discards *$out*. Two affordances make
+the captured NDJSON visible anyway:
+
+. The build script echoes the NDJSON to *stderr* between sentinel
+  markers — *>>> BATSLANE NDJSON BEGIN <<<* and
+  *>>> BATSLANE NDJSON END <<<*. nix's default failure output
+  prints the trailing log lines, so the captured records show up
+  inline without any extra flags. *nix log <drv>* retrieves the
+  full log (including the markers) for any past build.
+. *nix build --keep-failed* preserves the partial *$out* at its
+  declared store path, so consumers wanting the original files
+  (e.g. *run.raw.tap*, *exit_code*) can copy them out of the kept
+  output. For agent triage that only needs the NDJSON, the
+  stderr-marker path is simpler.
+
+To extract just the NDJSON block from a build log:
+
+```
+nix log .#batman-ndjson-demo 2>/dev/null \
+  | sed -n '/BATSLANE NDJSON BEGIN/,/BATSLANE NDJSON END/p' \
+  | sed '1d;$d'
+```
+
+The NDJSON wire format is defined in *amarbel-llc/tap* RFC 0001
+("TAP test-result NDJSON schema"). The agent-friendly affordance is
+that each failing test record carries its own
+*diagnostic.message* lifted from the YAML block, so triage code can
+go straight from a record to a file + line reference without
+parsing TAP.
 
 # NIX-BUILDER CAVEATS
 
