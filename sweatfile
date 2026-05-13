@@ -1,0 +1,9 @@
+# spinclass(1) repo-level sweatfile.
+# See spinclass-sweatfile(5) for the full schema.
+
+[hooks]
+# `just` invokes the default justfile recipe (see justfile:4) which
+# chains the batman test aggregates and `nix flake check`. Per
+# eng-design_patterns-justfile(7), a passing default recipe means the
+# project is in a good state, so it doubles as the pre-merge gate.
+pre-merge = "just"

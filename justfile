@@ -1,8 +1,10 @@
 # bats / batman
 cmd_nix_dev := "nix develop --command"
 
-default:
-    @just --list
+# Build-and-verify pipeline (eng-design_patterns-justfile(7) convention).
+# `just` with no args runs this; spinclass also runs `just` as the
+# pre-merge gate (see ./sweatfile).
+default: test-batman flake-check
 
 # --- bats-core upstream tests (existing) -----------------------------------
 
