@@ -8,7 +8,10 @@ bats-testing - BATS integration test conventions for amarbel-llc projects
 
 Integration tests in amarbel-llc projects use BATS (Bash Automated Testing
 System) via the *batman* wrapper. Batman bundles BATS with six support
-libraries, fence-based sandbox isolation, and TAP-14 output formatting.
+libraries, fence-based sandbox isolation, and a split-NDJSON output
+pipeline (failures on stdout, passes to a per-run tmpdir file) backed
+by *tap-dancer format-ndjson --split*. Pass *--no-split* / *--full-output*
+to restore the historical TAP-14 stream.
 
 This manpage covers the conventions for writing, organizing, and running
 BATS tests.
@@ -288,8 +291,18 @@ arguments:
 *--no-tempdir-cleanup*
 	Keep BATS temp directories after test run.
 
-*--hide-passing*
-	Filter TAP output to show only failures and skips.
+*--no-split*, *--full-output*
+	Bypass the default split-output pipeline and emit the bats
+	TAP-14 stream verbatim on stdout (plan, version, and every
+	*ok*/*not ok* line). Equivalent to the pre-split behavior.
+
+*--pass-out* _PATH_
+	Override the path for the passing-test NDJSON file produced
+	by the default split pipeline. Implies the split mode is
+	active; the file is written when at least one test passes
+	and is otherwise an empty file. The wrapper still emits a
+	stderr diagnostic naming the chosen path. Ignored under
+	*--no-split*.
 
 *--diagnostics-stderr*
 	Write batman's wrapper diagnostics (parse errors, missing

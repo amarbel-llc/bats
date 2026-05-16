@@ -145,10 +145,13 @@ let
 
       # Opt-in: capture the bats TAP-14 stream and convert it to NDJSON
       # alongside the run. When true, `$out` becomes a DIRECTORY containing
-      # `run.tap`, `run.ndjson`, and `exit_code` (the bats exit status as a
-      # one-line decimal). When false (default), `$out` remains a single
-      # stamp file as before. Existing consumers that `stat result` as a
-      # file are unaffected unless they opt in.
+      # `run.raw.tap`, `run.tap`, `exit_code`, and one of:
+      #   - `run.failures.ndjson` + `run.passes.ndjson` when `splitNdjson`
+      #     is true (the default), or
+      #   - `run.ndjson` (combined records) when `splitNdjson` is false.
+      # When `emitNdjson` itself is false (the original default), `$out`
+      # remains a single stamp file as before. Existing consumers that
+      # `stat result` as a file are unaffected unless they opt in.
       #
       # Requires `tap-dancer-go` either as a top-level arg of this file
       # (the default plumbed by flake.nix) or as a per-call override
@@ -157,6 +160,15 @@ let
       # The NDJSON schema is defined in amarbel-llc/tap, RFC 0001
       # (`docs/rfcs/0001-test-result-ndjson-schema.md`).
       emitNdjson ? false,
+
+      # When `emitNdjson` is true, split NDJSON records into
+      # `$out/run.failures.ndjson` (failures + bail-outs) and
+      # `$out/run.passes.ndjson` (passing records) via
+      # `tap-dancer format-ndjson --split`. Defaults to true so build
+      # logs (and the inline stderr echo) aren't drowned in pass
+      # records. Set false to keep the combined `run.ndjson` and full
+      # inline echo of every record.
+      splitNdjson ? true,
 
       # Per-call override of the `tap-dancer-go` derivation used when
       # `emitNdjson = true`. Falls back to the top-level `tap-dancer-go`
@@ -265,11 +277,22 @@ let
       '';
 
       # NDJSON form: $out is a directory carrying `run.raw.tap`,
-      # `run.tap`, `run.ndjson`, and `exit_code`. The pipeline is:
+      # `run.tap`, NDJSON records (split or combined), and `exit_code`.
+      # The pipeline is:
       #
       #   bats --formatter tap13 ...  → run.raw.tap   (TAP-13 + YAML)
       #   tap-dancer reformat         → run.tap       (TAP-14 header prepended)
-      #   tap-dancer format-ndjson    → run.ndjson    (per-test NDJSON records)
+      #   tap-dancer format-ndjson    → split or combined NDJSON
+      #
+      # When `splitNdjson` is true (the default), `format-ndjson --split`
+      # writes failure records to `run.failures.ndjson` (stdout) and
+      # passing records to `run.passes.ndjson` (--pass-out). The inline
+      # stderr echo then carries only the failure records, keeping the
+      # build log focused on what went wrong.
+      #
+      # When `splitNdjson` is false, the original combined behavior is
+      # preserved: every record lands in `run.ndjson` and is echoed
+      # inline.
       #
       # We disable errexit around the bats call so a failed test run
       # still gets converted to NDJSON before the derivation exits
@@ -277,6 +300,37 @@ let
       # preserved via `nix build --keep-failed`. The bats exit status
       # is the gating signal; reformat/format-ndjson exit codes are
       # ignored so we don't double-fail or mask the bats outcome.
+      ndjsonRenderStep =
+        if splitNdjson then
+          ''
+            ${tapDancerGo}/bin/tap-dancer format-ndjson --split \
+              --pass-out "$out/run.passes.ndjson" \
+              < "$out/run.tap" > "$out/run.failures.ndjson" || true
+            # Ensure both files exist even on all-pass / all-fail runs,
+            # so downstream consumers can unconditionally read them.
+            [ -e "$out/run.failures.ndjson" ] || : > "$out/run.failures.ndjson"
+            [ -e "$out/run.passes.ndjson" ] || : > "$out/run.passes.ndjson"
+          ''
+        else
+          ''
+            ${tapDancerGo}/bin/tap-dancer format-ndjson \
+              < "$out/run.tap" > "$out/run.ndjson" || true
+          '';
+      ndjsonEchoStep =
+        if splitNdjson then
+          ''
+            printf '%s\n' '>>> BATSLANE NDJSON BEGIN <<<' >&2
+            cat "$out/run.failures.ndjson" >&2
+            pass_count=$(wc -l < "$out/run.passes.ndjson" | tr -d ' ')
+            printf 'passes: %s record(s) at %s\n' "$pass_count" "$out/run.passes.ndjson" >&2
+            printf '%s\n' '>>> BATSLANE NDJSON END <<<' >&2
+          ''
+        else
+          ''
+            printf '%s\n' '>>> BATSLANE NDJSON BEGIN <<<' >&2
+            cat "$out/run.ndjson" >&2
+            printf '%s\n' '>>> BATSLANE NDJSON END <<<' >&2
+          '';
       ndjsonInvocation = ''
         mkdir -p "$out"
         cd stage/zz-tests_bats
@@ -292,18 +346,15 @@ let
         set -o errexit
         ${tapDancerGo}/bin/tap-dancer reformat \
           < "$out/run.raw.tap" > "$out/run.tap" || cp "$out/run.raw.tap" "$out/run.tap"
-        ${tapDancerGo}/bin/tap-dancer format-ndjson \
-          < "$out/run.tap" > "$out/run.ndjson" || true
+        ${ndjsonRenderStep}
         echo "$bats_status" > "$out/exit_code"
-        # Echo the NDJSON to stderr between sentinel markers so the
-        # nix builder log carries the captured records inline. On
-        # failure, `nix build` prints the build-log tail to the user
+        # Echo NDJSON to stderr between sentinel markers so the nix
+        # builder log carries the captured records inline. On failure,
+        # `nix build` prints the build-log tail to the user
         # automatically; for any run, `nix log <drv>` retrieves the
         # full log including this block. Agents extracting the NDJSON
         # programmatically can sed/awk between the BEGIN/END markers.
-        printf '%s\n' '>>> BATSLANE NDJSON BEGIN <<<' >&2
-        cat "$out/run.ndjson" >&2
-        printf '%s\n' '>>> BATSLANE NDJSON END <<<' >&2
+        ${ndjsonEchoStep}
         exit "$bats_status"
       '';
 

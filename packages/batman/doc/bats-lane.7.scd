@@ -192,14 +192,29 @@ testFiles = [ "current_version/*.bats" "previous_versions/main.bats" ];
 	The pipeline when emitNdjson is on:
 
 ```
-bats --formatter tap13 ...      → run.raw.tap   (TAP-13 + YAML diagnostics)
-tap-dancer reformat             → run.tap       (TAP-14 with version header)
-tap-dancer format-ndjson        → run.ndjson    (per-test NDJSON records)
+bats --formatter tap13 ...                  → run.raw.tap        (TAP-13 + YAML)
+tap-dancer reformat                         → run.tap            (TAP-14 + header)
+tap-dancer format-ndjson [--split]          → split or combined NDJSON
 ```
+
+	With *splitNdjson = true* (the default), the final stage runs
+	*tap-dancer format-ndjson --split --pass-out run.passes.ndjson*
+	so failure records land in *run.failures.ndjson* and passing
+	records land in *run.passes.ndjson*. The inline build-log echo
+	then carries only the failure records.
+
+	With *splitNdjson = false*, the original combined behavior is
+	preserved: every record lands in *run.ndjson*.
 
 	The TAP-13 formatter is selected automatically when no
 	formatter is supplied via *extraBatsArgs*; callers passing
 	their own *--formatter* / *--tap* are honored as-is.
+
+*splitNdjson*
+	A bool (default true). Ignored unless *emitNdjson = true*. Set
+	false to opt out of the split-output default and produce a
+	single combined *run.ndjson* file plus a full inline build-log
+	echo.
 
 *tapDancerGo*
 	A derivation override (default: the top-level *tap-dancer-go*
@@ -213,7 +228,18 @@ When *emitNdjson = false* (the default), *$out* is a single empty
 regular file — a stamp signaling that bats succeeded. Consumers can
 treat *result* as a file and *stat* / hash it normally.
 
-When *emitNdjson = true*, *$out* is a *directory* containing:
+When *emitNdjson = true*, *$out* is a *directory*. Under the default
+*splitNdjson = true*:
+
+```
+run.raw.tap            # bats's raw TAP-13 output (pre-reformat)
+run.tap                # TAP-14 with version header (tap-dancer reformat)
+run.failures.ndjson    # NDJSON failure records (stdout of --split)
+run.passes.ndjson      # NDJSON passing records (--pass-out target)
+exit_code              # bats's exit status as a one-line decimal
+```
+
+Under *splitNdjson = false*:
 
 ```
 run.raw.tap   # bats's raw TAP-13 output (pre-reformat)
