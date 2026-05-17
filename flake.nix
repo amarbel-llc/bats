@@ -7,10 +7,18 @@
     nixpkgs.url = "github:amarbel-llc/nixpkgs";
     nixpkgs-master.url = "github:NixOS/nixpkgs/d233902339c02a9c334e7e593de68855ad26c4cb";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
-    tap = {
-      url = "github:amarbel-llc/tap";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # Previously we declared `tap` as a flake input solely to reach
+    # `tap.packages.${system}.tap-dancer-go` for the batsLane
+    # `emitNdjson = true` codepath. Tap inputs bats (for bats-libs),
+    # creating a flake-input cycle that downstream consumers
+    # (amarbel-llc/eng) had to break via SCC-local lex ordering. We
+    # now vendor tap's source as an FOD (`fetchFromGitHub`) and build
+    # tap-dancer-go locally — see `tapSrc` / `tapDancerGo` below.
+    # Bumping requires updating the `rev` + `hash` literal there.
+    # The long-term clean fix is amarbel-llc/bats#17 (extract bats-libs
+    # into its own repo) + amarbel-llc/tap#19 (publish per-platform
+    # tap-dancer-go release binaries so this FOD can switch to
+    # `pkgs.fetchurl`).
   };
 
   outputs =
@@ -19,7 +27,6 @@
       nixpkgs,
       nixpkgs-master,
       utils,
-      tap,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -29,6 +36,48 @@
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ nixpkgs.overlays.default ];
+        };
+
+        # pkgs-master sources the Go toolchain we use to build the
+        # vendored tap-dancer-go (mirrors tap's own flake.nix, which
+        # builds with pkgs-master.go).
+        pkgs-master = import nixpkgs-master { inherit system; };
+
+        # FOD copy of amarbel-llc/tap, pinned. Vendored to avoid the
+        # bats↔tap flake-input cycle (see inputs comment above).
+        # Bumping protocol:
+        #   1. Pick the target tap rev: `nix flake metadata --json
+        #      github:amarbel-llc/tap | jq -r .locked.rev`.
+        #   2. Compute the unpacked hash:
+        #      `nix-prefetch-url --unpack --type sha256 \
+        #         https://github.com/amarbel-llc/tap/archive/<rev>.tar.gz`
+        #      then `nix hash convert --hash-algo sha256 --to sri <base32>`.
+        #   3. Set both `rev` and `hash` here. Bump bats's flake-tip
+        #      commit so downstream consumers pick up the new
+        #      tap-dancer-go via their own `nix flake update bats`.
+        tapSrc = pkgs.fetchFromGitHub {
+          owner = "amarbel-llc";
+          repo = "tap";
+          rev = "641031374269412c74e3c974f94509db9dcf1344";
+          hash = "sha256-iW41E9eQgBZUVBumOJfkZrHk/dMFs1xL3pj6aZizvzE=";
+        };
+
+        # Locally-built tap-dancer-go. Mirrors tap's own flake.nix
+        # `tap-dancer-go` derivation (buildGoApplication invocation,
+        # subPackages, gomod2nix.toml path, Go toolchain). Stays in
+        # sync because `tapSrc` carries tap's `version.env`,
+        # `gomod2nix.toml`, and Go sources verbatim.
+        tapDancerGo = pkgs.buildGoApplication {
+          pname = "tap-dancer";
+          version = builtins.elemAt (
+            builtins.match "^VERSION=([^\n]+)\n?$" (builtins.readFile "${tapSrc}/version.env")
+          ) 0;
+          src = "${tapSrc}/go";
+          pwd = "${tapSrc}/go";
+          subPackages = [ "cmd/tap-dancer" ];
+          modules = "${tapSrc}/go/gomod2nix.toml";
+          go = pkgs-master.go;
+          GOTOOLCHAIN = "local";
         };
 
         # batsLane is a generic build-support helper for running bats
@@ -47,12 +96,12 @@
           # Enables per-lane `emitNdjson = true` opt-in without forcing
           # callers to re-import the file with their own tap-dancer
           # derivation. Same input as the bats wrapper at line 51.
-          tap-dancer-go = tap.packages.${system}.tap-dancer-go;
+          tap-dancer-go = tapDancerGo;
         };
 
         mkBats =
           {
-            tap-dancer-go ? tap.packages.${system}.tap-dancer-go,
+            tap-dancer-go ? tapDancerGo,
           }:
           (import ./nix/packages/batman.nix {
             inherit pkgs tap-dancer-go;
