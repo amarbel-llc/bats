@@ -4,14 +4,22 @@
   tap-dancer-go,
   fence,
   buildZxScriptFromFile,
+  batmanVersion,
+  batmanCommit,
 }:
 
 let
   inherit (pkgs) lib;
 
+  # Vendored bats-support/bats-assert keep their upstream-tracking
+  # version literals; the rest of the lib derivations + batman itself
+  # rebind to batmanVersion via the fork's version.env.
+  batsSupportVersion = "0.3.0";
+  batsAssertVersion = "2.1.0";
+
   bats-support = pkgs.stdenvNoCC.mkDerivation {
     pname = "bats-support";
-    version = "0.3.0";
+    version = batsSupportVersion;
     src = "${src}/lib/bats-support";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontBuild = true;
@@ -27,7 +35,7 @@ let
 
   bats-assert = pkgs.stdenvNoCC.mkDerivation {
     pname = "bats-assert";
-    version = "2.1.0";
+    version = batsAssertVersion;
     src = "${src}/lib/bats-assert";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontBuild = true;
@@ -43,7 +51,7 @@ let
 
   bats-assert-additions = pkgs.stdenvNoCC.mkDerivation {
     pname = "bats-assert-additions";
-    version = "0.1.0";
+    version = batmanVersion;
     src = "${src}/lib/bats-assert-additions";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontBuild = true;
@@ -59,7 +67,7 @@ let
 
   tap-writer = pkgs.stdenvNoCC.mkDerivation {
     pname = "tap-writer";
-    version = "0.1.0";
+    version = batmanVersion;
     src = "${src}/lib/tap-writer";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontBuild = true;
@@ -75,7 +83,7 @@ let
 
   bats-island = pkgs.stdenvNoCC.mkDerivation {
     pname = "bats-island";
-    version = "0.1.0";
+    version = batmanVersion;
     src = "${src}/lib/bats-island";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontUnpack = true;
@@ -92,7 +100,7 @@ let
 
   bats-emo = pkgs.stdenvNoCC.mkDerivation {
     pname = "bats-emo";
-    version = "0.1.0";
+    version = batmanVersion;
     src = "${src}/lib/bats-emo";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontUnpack = true;
@@ -109,7 +117,7 @@ let
 
   batman-manpages = pkgs.stdenvNoCC.mkDerivation {
     pname = "batman-manpages";
-    version = "0.1.0";
+    version = batmanVersion;
     src = "${src}/doc";
     nativeBuildInputs = [ pkgs.scdoc ];
     dontUnpack = true;
@@ -151,6 +159,20 @@ let
       fence
     ];
     text = ''
+      # `version`: print the wrapper's own version + component
+      # versions. Sibling to the `batman version` subcommand; uses a
+      # positional keyword (not --version) so the upstream bats
+      # --version stays reachable by passing --version through bats_args.
+      if [[ "''${1:-}" == "version" ]]; then
+        cat <<EOF
+      batman bats wrapper ${batmanVersion}+${batmanCommit}
+      components:
+        bats (upstream):  ${pkgs.bats.version}
+        fence:            ${fence.version}
+      EOF
+        exit 0
+      fi
+
       # --query-sandbox: report the active sandbox backend.
       # Always "fence" since this build wraps every test command in
       # `fence --settings <cfg> -- bats <args>` (unless --no-sandbox is
@@ -302,7 +324,7 @@ let
 
   batman = buildZxScriptFromFile {
     pname = "batman";
-    version = "0.0.1";
+    version = batmanVersion;
     script = "${src}/src/batman.ts";
     runtimeInputs = [
       fence
@@ -310,6 +332,23 @@ let
       pkgs.coreutils
       pkgs.gawk
     ];
+    # Component versions consumed by batman.ts's `version` subcommand.
+    # Keep BATMAN_* prefix uniform so future iteration / serialization
+    # can walk these generically. See docs/eng-versioning(7).
+    runtimeEnv = {
+      BATMAN_VERSION = batmanVersion;
+      BATMAN_COMMIT = batmanCommit;
+      BATMAN_BATS_WRAPPER_VERSION = batmanVersion;
+      BATMAN_BATS_UPSTREAM_VERSION = pkgs.bats.version;
+      BATMAN_BATS_SUPPORT_VERSION = batsSupportVersion;
+      BATMAN_BATS_ASSERT_VERSION = batsAssertVersion;
+      BATMAN_BATS_ASSERT_ADDITIONS_VERSION = batmanVersion;
+      BATMAN_TAP_WRITER_VERSION = batmanVersion;
+      BATMAN_BATS_ISLAND_VERSION = batmanVersion;
+      BATMAN_BATS_EMO_VERSION = batmanVersion;
+      BATMAN_FENCE_VERSION = fence.version;
+      BATMAN_TAP_DANCER_VERSION = tap-dancer-go.version;
+    };
   };
 
 in

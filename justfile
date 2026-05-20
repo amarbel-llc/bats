@@ -83,6 +83,95 @@ test-batman-ndjson-demo:
       | sed -n '/BATSLANE NDJSON BEGIN/,/BATSLANE NDJSON END/p' \
       | sed '1d;$d'
 
+# --- maint ----------------------------------------------------------------
+
+# Sed-rewrite BATMAN_VERSION in version.env to the given semver.
+# version.env is the single source of truth for the release version;
+# flake.nix reads it via builtins.readFile, and the nix build threads
+# it through batman.nix's `batmanVersion` arg into every owned
+# derivation + the `batman version` runtimeEnv. No-op if already at
+# the target. Usage: just bump-version 0.1.1
+[group("maint")]
+bump-version new_version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    current=$(grep '^BATMAN_VERSION=' version.env | cut -d= -f2)
+    if [[ "$current" == "{{new_version}}" ]]; then
+        gum log --level info "already at {{new_version}}"
+        exit 0
+    fi
+    sed -i.bak 's/^BATMAN_VERSION=.*/BATMAN_VERSION={{new_version}}/' version.env && rm version.env.bak
+    gum log --level info "bumped BATMAN_VERSION: $current → {{new_version}}"
+
+# Create a signed annotated tag, push it to origin, and verify the
+# signature. The "v" prefix is added for you, so pass the semver
+# without it. Usage: just tag 0.1.0 "feat: initial fork release"
+[group("maint")]
+tag version message:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag="v{{version}}"
+    prev=$(git tag --sort=-v:refname -l "v*" | head -1)
+    if [[ -n "$prev" ]]; then
+        gum log --level info "Previous: $prev"
+        git log --oneline "$prev"..HEAD
+    fi
+    git tag -s -m "{{message}}" "$tag"
+    gum log --level info "Created tag: $tag"
+    git push origin "$tag"
+    gum log --level info "Pushed $tag"
+    git tag -v "$tag"
+
+# Cut a release: must be run on master. Bumps BATMAN_VERSION in
+# version.env, commits the bump with a changelog-style message built
+# from commits since the last v* tag, pushes master, then signs and
+# pushes the v{{version}} tag. The "v" prefix is added for you, so
+# pass the semver without it. Usage: just release 0.1.1
+#
+# The `tag` recipe stays standalone for callers that want to control
+# the commit message themselves without bumping. Release inlines the
+# tag-step here because passing a multi-line message across `just`
+# recipe boundaries was unreliable — the inner recipe saw a malformed
+# argument and `git tag -s` would fail in a way that didn't surface
+# until much later (see madder release-v0.3.0 incident).
+[group("maint")]
+release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    if [[ "$current_branch" != "master" ]]; then
+        gum log --level error "just release must be run on master (currently on $current_branch)"
+        exit 1
+    fi
+    prev=$(git tag --sort=-v:refname -l "v*" | head -1)
+    header="release v{{version}}"
+    if [[ -n "$prev" ]]; then
+        summary=$(git log --format='- %s' "$prev"..HEAD)
+        if [[ -n "$summary" ]]; then
+            msg="$header"$'\n\n'"$summary"
+        else
+            msg="$header"
+        fi
+    else
+        msg="$header"
+    fi
+    just bump-version "{{version}}"
+    if ! git diff --quiet version.env; then
+        git add version.env
+        git commit -m "chore: release v{{version}}"
+        git push origin master
+        gum log --level info "pushed version.env bump to master"
+    fi
+    tag="v{{version}}"
+    if [[ -n "$prev" ]]; then
+        gum log --level info "Previous: $prev"
+        git log --oneline "$prev"..HEAD || true
+    fi
+    git tag -s -m "$msg" "$tag"
+    gum log --level info "Created tag: $tag"
+    git push origin "$tag"
+    gum log --level info "Pushed $tag"
+
 # --- general --------------------------------------------------------------
 
 # Clean stray result symlinks (if any leaked from past `nix build -o ...` runs)

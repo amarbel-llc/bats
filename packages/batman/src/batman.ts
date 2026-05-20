@@ -222,7 +222,40 @@ async function runGroup(
   });
 }
 
+function printVersion(): void {
+  const v = process.env;
+  const headline = `batman ${v.BATMAN_VERSION ?? "dev"}+${v.BATMAN_COMMIT ?? "dirty"}`;
+  const components: Array<[string, string | undefined]> = [
+    ["bats (wrapper)", v.BATMAN_BATS_WRAPPER_VERSION],
+    ["bats (upstream)", v.BATMAN_BATS_UPSTREAM_VERSION],
+    ["bats-support", v.BATMAN_BATS_SUPPORT_VERSION],
+    ["bats-assert", v.BATMAN_BATS_ASSERT_VERSION],
+    ["bats-assert-additions", v.BATMAN_BATS_ASSERT_ADDITIONS_VERSION],
+    ["tap-writer", v.BATMAN_TAP_WRITER_VERSION],
+    ["bats-island", v.BATMAN_BATS_ISLAND_VERSION],
+    ["bats-emo", v.BATMAN_BATS_EMO_VERSION],
+    ["fence", v.BATMAN_FENCE_VERSION],
+    ["tap-dancer", v.BATMAN_TAP_DANCER_VERSION],
+  ];
+  const labelWidth = Math.max(...components.map(([k]) => k.length));
+  const lines = [headline, "", "components:"];
+  for (const [name, ver] of components) {
+    lines.push(`  ${name.padEnd(labelWidth)}  ${ver ?? "?"}`);
+  }
+  console.log(lines.join("\n"));
+}
+
 async function main(): Promise<number> {
+  // `version` subcommand: print build identity + per-component
+  // versions injected at build time via buildZxScriptFromFile's
+  // runtimeEnv (see nix/packages/batman.nix). Positional keyword,
+  // not a flag, so it never conflicts with bats's own --version
+  // when batman forwards args downstream.
+  if (process.argv[2] === "version") {
+    printVersion();
+    return 0;
+  }
+
   // Pre-scan argv for --diagnostics-stderr so parse-error diagnostics
   // can also honor the flag (we can't read parsed args before parsing).
   const argv = process.argv.slice(2);

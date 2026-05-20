@@ -99,12 +99,25 @@
           tap-dancer-go = tapDancerGo;
         };
 
+        # Single source of truth for the fork's own release version.
+        # version.env is sed-rewritten by `just bump-version` and read
+        # here at flake eval time. See docs/eng-versioning(7).
+        batmanVersion = builtins.elemAt (
+          builtins.match "^BATMAN_VERSION=([^\n]+)\n?$" (builtins.readFile ./version.env)
+        ) 0;
+
+        # Git revision of the working tree feeding this flake. `self.rev`
+        # is populated only when the source is a clean rev; dirty
+        # working trees fall back to "dirty". Matches moxy/madder.
+        batmanCommit = self.rev or "dirty";
+
         mkBats =
           {
             tap-dancer-go ? tapDancerGo,
           }:
           (import ./nix/packages/batman.nix {
             inherit pkgs tap-dancer-go;
+            inherit batmanVersion batmanCommit;
             src = ./packages/batman;
             fence = pkgs.fence;
             buildZxScriptFromFile = pkgs.buildZxScriptFromFile;
@@ -250,6 +263,10 @@
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.just
+            # gum: terminal UI logging used by the maint group's
+            # `tag` / `bump-version` / `release` recipes
+            # (see docs/eng-versioning(7)).
+            pkgs.gum
             batmanPkgs.default
           ];
 
