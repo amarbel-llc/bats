@@ -167,6 +167,7 @@ let
         cat <<EOF
       batman bats wrapper ${batmanVersion}+${batmanCommit}
       components:
+        bats (wrapper):   ${batmanVersion}
         bats (upstream):  ${pkgs.bats.version}
         fence:            ${fence.version}
       EOF
