@@ -186,7 +186,9 @@ let
       sandbox=true
       allow_local_binding=false
       no_tempdir_cleanup=false
-      hide_passing=false
+      split=true
+      pass_out=""
+      config=""
 
       bats_args=()
       while (( $# > 0 )); do
@@ -203,8 +205,20 @@ let
             no_tempdir_cleanup=true
             shift
             ;;
-          --hide-passing)
-            hide_passing=true
+          --no-split|--full-output)
+            split=false
+            shift
+            ;;
+          --pass-out)
+            if (( $# < 2 )); then
+              echo "bats wrapper: --pass-out requires a path argument" >&2
+              exit 2
+            fi
+            pass_out="$2"
+            shift 2
+            ;;
+          --pass-out=*)
+            pass_out="''${1#--pass-out=}"
             shift
             ;;
           --)
@@ -219,6 +233,27 @@ let
         esac
       done
       set -- "''${bats_args[@]}"
+
+      # Per-run tmpdir for the passing-test NDJSON when split is on and
+      # no caller-supplied path was given. Reported on stderr so an
+      # interactive user can find it. Cleaned with the wrapper's EXIT
+      # trap unless --no-tempdir-cleanup is set.
+      pass_tmp=""
+      if $split && [[ -z "$pass_out" ]]; then
+        pass_tmp="$(mktemp -d --suffix=.batman)"
+        pass_out="$pass_tmp/passes.ndjson"
+        echo "bats wrapper: passing-test NDJSON -> $pass_out" >&2
+      fi
+
+      cleanup() {
+        if [[ -n "$config" ]]; then
+          rm -f "$config"
+        fi
+        if [[ -n "$pass_tmp" ]] && ! $no_tempdir_cleanup; then
+          rm -rf "$pass_tmp"
+        fi
+      }
+      trap cleanup EXIT
 
       # Append batman's bats-libs to BATS_LIB_PATH (caller paths take precedence)
       export BATS_LIB_PATH="''${BATS_LIB_PATH:+$BATS_LIB_PATH:}${bats-libs}/share/bats"
@@ -236,21 +271,6 @@ let
         use_tap14=true
       fi
 
-      filter_tap() {
-        if $hide_passing; then
-          awk '
-            /^  ---$/ { in_yaml = 1; if (show) print; next }
-            /^  \.\.\.$/ { in_yaml = 0; if (show) print; next }
-            in_yaml { if (show) print; next }
-            /^ok / { show = ($0 ~ /# [Ss][Kk][Ii][Pp]/ || $0 ~ /# [Tt][Oo][Dd][Oo]/); if (show) print; next }
-            /^not ok / { show = 1; print; next }
-            { show = 1; print }
-          '
-        else
-          cat
-        fi
-      }
-
       reformat_tap() {
         if $use_tap14; then
           tap-dancer reformat
@@ -259,9 +279,16 @@ let
         fi
       }
 
+      split_or_passthrough() {
+        if $split; then
+          tap-dancer format-ndjson --split --pass-out "$pass_out"
+        else
+          cat
+        fi
+      }
+
       if $sandbox; then
         config="$(mktemp --suffix=.json)"
-        trap 'rm -f "$config"' EXIT
 
         # fence config: denyRead blocks credential dirs; allowWrite
         # restricts writes to /tmp; empty allowedDomains denies all
@@ -313,12 +340,12 @@ let
           set -- --no-tempdir-cleanup "$@"
         fi
 
-        fence --settings "$config" -- bats "$@" | filter_tap | reformat_tap
+        fence --settings "$config" -- bats "$@" | reformat_tap | split_or_passthrough
       else
         if $no_tempdir_cleanup; then
           set -- --no-tempdir-cleanup "$@"
         fi
-        bats "$@" | filter_tap | reformat_tap
+        bats "$@" | reformat_tap | split_or_passthrough
       fi
     '';
   };

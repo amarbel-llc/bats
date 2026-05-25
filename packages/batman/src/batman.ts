@@ -21,7 +21,7 @@ import * as nodePath from "node:path";
 
 type ParsedArgs = {
   noTempdirCleanup: boolean;
-  hidePassing: boolean;
+  fullOutput: boolean;
   dryRun: boolean;
   diagnosticsStderr: boolean;
   positional: string[];
@@ -35,7 +35,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   const positional: string[] = [];
   let noTempdirCleanup = false;
-  let hidePassing = false;
+  let fullOutput = false;
   let dryRun = false;
   let diagnosticsStderr = false;
 
@@ -45,8 +45,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       case "--no-tempdir-cleanup":
         noTempdirCleanup = true;
         break;
-      case "--hide-passing":
-        hidePassing = true;
+      case "--no-split":
+      case "--full-output":
+        fullOutput = true;
         break;
       case "--dry-run":
         dryRun = true;
@@ -62,14 +63,15 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
   }
 
-  // --no-tempdir-cleanup is forwarded to bats too.
-  const passthrough = noTempdirCleanup
-    ? ["--no-tempdir-cleanup", ...passthroughBase]
-    : passthroughBase;
+  // Forward batman-level toggles that the bats wrapper also understands.
+  const forwarded: string[] = [];
+  if (noTempdirCleanup) forwarded.push("--no-tempdir-cleanup");
+  if (fullOutput) forwarded.push("--no-split");
+  const passthrough = [...forwarded, ...passthroughBase];
 
   return {
     noTempdirCleanup,
-    hidePassing,
+    fullOutput,
     dryRun,
     diagnosticsStderr,
     positional,
@@ -133,77 +135,21 @@ async function logDiagnostic(
   await fsp.appendFile(nodePath.join(dir, "batman.log"), `${ts} ${msg}\n`);
 }
 
-// hide-passing TAP filter: strip passing `ok N ...` lines and their YAML blocks.
-// Mirrors the awk used by the existing bats wrapper.
-function makeHidePassingFilter(): (chunk: string) => string {
-  let buf = "";
-  let inYaml = false;
-  let show = true;
-  return (chunk: string) => {
-    buf += chunk;
-    let out = "";
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, nl);
-      buf = buf.slice(nl + 1);
-      if (/^  ---$/.test(line)) {
-        inYaml = true;
-        if (show) out += line + "\n";
-        continue;
-      }
-      if (/^  \.\.\.$/.test(line)) {
-        inYaml = false;
-        if (show) out += line + "\n";
-        continue;
-      }
-      if (inYaml) {
-        if (show) out += line + "\n";
-        continue;
-      }
-      if (/^ok /.test(line)) {
-        show =
-          / # [Ss][Kk][Ii][Pp]/.test(line) || / # [Tt][Oo][Dd][Oo]/.test(line);
-        if (show) out += line + "\n";
-        continue;
-      }
-      if (/^not ok /.test(line)) {
-        show = true;
-        out += line + "\n";
-        continue;
-      }
-      show = true;
-      out += line + "\n";
-    }
-    return out;
-  };
-}
-
 async function runGroup(
   dir: string,
   files: string[],
   passthrough: string[],
-  hidePassing: boolean,
   diagnosticsStderr: boolean,
 ): Promise<number> {
   const cfg = nodePath.join(dir, "fence.jsonc");
   const fileArgs = files.map((f) => nodePath.join(dir, f));
 
   return new Promise((resolve) => {
-    const stdout = hidePassing ? "pipe" : "inherit";
     const child = spawn(
       "fence",
       ["--settings", cfg, "--", "bats", ...passthrough, ...fileArgs],
-      { stdio: ["inherit", stdout, "inherit"] },
+      { stdio: ["inherit", "inherit", "inherit"] },
     );
-
-    if (hidePassing && child.stdout) {
-      const filter = makeHidePassingFilter();
-      child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => {
-        const out = filter(chunk);
-        if (out.length > 0) process.stdout.write(out);
-      });
-    }
 
     child.on("error", (err) => {
       // Spawn failure (e.g. fence missing) - record and treat as group failure.
@@ -273,8 +219,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const { hidePassing, dryRun, diagnosticsStderr, positional, passthrough } =
-    parsed;
+  const { dryRun, diagnosticsStderr, positional, passthrough } = parsed;
 
   // Validate paths exist before discovery.
   for (const p of positional) {
@@ -313,13 +258,7 @@ async function main(): Promise<number> {
 
   let aggregate = 0;
   for (const [dir, files] of groups) {
-    const code = await runGroup(
-      dir,
-      files,
-      passthrough,
-      hidePassing,
-      diagnosticsStderr,
-    );
+    const code = await runGroup(dir, files, passthrough, diagnosticsStderr);
     if (code !== 0) aggregate = 1;
   }
   return aggregate;
