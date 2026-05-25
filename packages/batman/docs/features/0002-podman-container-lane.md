@@ -65,7 +65,7 @@ What it doesn't give:
   `batman.bats` and `island.bats` only (mirroring
   `test-batman-fence`'s posture; `bats_wrapper.bats` is skipped
   because it requires the fence-wrapped `BATS_WRAPPER`).
-- A justfile recipe `test-batman-container` that thin-wraps the
+- A justfile recipe `run-bats-container` that thin-wraps the
   generic runner for ad-hoc invocations.
 - A manpage section (in `bats-lane(7)`, or a new
   `bats-lane-container(7)`) covering the new lane.
@@ -236,7 +236,7 @@ check (podman cannot run in a builder), but it is the canonical
 
 ```just
 # Generic ad-hoc invocation against an arbitrary bats source tree.
-test-batman-container *args:
+run-bats-container *args:
     nix run .#bats-lane-container -- ./packages/batman/zz-tests_bats {{args}}
 
 # Container-lane self-proof: batman's own tests via the new lane.
@@ -250,7 +250,7 @@ until podman setup proves portable across consumer machines).
 
 ## Trade-offs
 
-| Aspect | batsLane (nix sandbox) | test-batman-container (podman) |
+| Aspect | batsLane (nix sandbox) | run-bats-container (podman) |
 |---|---|---|
 | Hermeticity | Per-closure, perfect | Image-hashed; run not cached |
 | `nix flake check`? | Yes | No (podman cannot run in builder) |

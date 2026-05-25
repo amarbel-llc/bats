@@ -48,12 +48,7 @@ let
 
   # Sanitize a bats `--filter-tags` expression for use as a derivation
   # name suffix. Replaces shell-unfriendly characters with `_`.
-  sanitizeFilter =
-    filter:
-    builtins.replaceStrings
-      [ "!" "," ":" " " ]
-      [ "not_" "_" "_" "_" ]
-      filter;
+  sanitizeFilter = filter: builtins.replaceStrings [ "!" "," ":" " " ] [ "not_" "_" "_" "_" ] filter;
 
   batsLane =
     {
@@ -182,7 +177,12 @@ let
         if binaries != null then
           binaries
         else if base != null && binaryName != null then
-          { ${binaryEnvVarName} = { inherit base; name = binaryName; }; }
+          {
+            ${binaryEnvVarName} = {
+              inherit base;
+              name = binaryName;
+            };
+          }
         else
           throw "testers.batsLane: either `binaries` or both `base` and `binaryName` must be set";
 
@@ -191,43 +191,29 @@ let
       # fall back to the first entry's base.pname when `binaries` is
       # the only form set.
       namingPname =
-        if base != null then
-          base.pname
-        else
-          (lib.head (lib.attrValues resolvedBinaries)).base.pname;
+        if base != null then base.pname else (lib.head (lib.attrValues resolvedBinaries)).base.pname;
 
-      derivedSuffix =
-        if filter != "" then sanitizeFilter filter else "all";
+      derivedSuffix = if filter != "" then sanitizeFilter filter else "all";
 
-      derivationName =
-        if name != null then name else "${namingPname}-bats-${derivedSuffix}";
+      derivationName = if name != null then name else "${namingPname}-bats-${derivedSuffix}";
 
-      binaryExports =
-        lib.concatStringsSep "\n" (
-          lib.mapAttrsToList
-            (envVar: spec: ''export ${envVar}="${spec.base}/bin/${spec.name}"'')
-            resolvedBinaries
-        );
+      binaryExports = lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (
+          envVar: spec: ''export ${envVar}="${spec.base}/bin/${spec.name}"''
+        ) resolvedBinaries
+      );
 
-      libPathExport =
-        lib.optionalString (batsLibPath != [ ]) ''
-          export BATS_LIB_PATH="''${BATS_LIB_PATH:+$BATS_LIB_PATH:}${
-            lib.concatStringsSep ":" (map toString batsLibPath)
-          }"
-        '';
+      libPathExport = lib.optionalString (batsLibPath != [ ]) ''
+        export BATS_LIB_PATH="''${BATS_LIB_PATH:+$BATS_LIB_PATH:}${lib.concatStringsSep ":" (map toString batsLibPath)}"
+      '';
 
-      filterFlag =
-        lib.optionalString (filter != "") "--filter-tags '${filter}'";
+      filterFlag = lib.optionalString (filter != "") "--filter-tags '${filter}'";
 
-      extraEnvExports =
-        lib.concatStringsSep "\n" (
-          lib.mapAttrsToList
-            (name: value: "export ${name}=${lib.escapeShellArg value}")
-            extraEnv
-        );
+      extraEnvExports = lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (name: value: "export ${name}=${lib.escapeShellArg value}") extraEnv
+      );
 
-      extraBatsArgsStr =
-        lib.concatMapStringsSep " " lib.escapeShellArg extraBatsArgs;
+      extraBatsArgsStr = lib.concatMapStringsSep " " lib.escapeShellArg extraBatsArgs;
 
       testFilesStr = lib.concatStringsSep " " testFiles;
 
@@ -235,13 +221,10 @@ let
       # "subdir/foo.lua"); ensure the parent exists before cp so
       # nested layouts work. The flat case is unaffected — `dirname`
       # of a bare filename is ".", and `mkdir -p stage/.` is a no-op.
-      extraStagingCommands =
-        lib.concatMapStringsSep "\n"
-          (entry: ''
-            mkdir -p "stage/$(dirname ${entry.dest})"
-            cp ${entry.src} stage/${entry.dest}
-          '')
-          extraStagedFiles;
+      extraStagingCommands = lib.concatMapStringsSep "\n" (entry: ''
+        mkdir -p "stage/$(dirname ${entry.dest})"
+        cp ${entry.src} stage/${entry.dest}
+      '') extraStagedFiles;
 
       # When emitNdjson is on we force bats to emit `tap13` — the
       # tap13 formatter is what gives us YAML diagnostic blocks on
@@ -254,12 +237,10 @@ let
       # than override it — if the consumer asked for junit or a
       # custom formatter, that's their call (format-ndjson will fail
       # cleanly on unexpected input).
-      callerSetsFormatter =
-        builtins.any
-          (a: a == "--tap" || a == "-t" || a == "--formatter" || a == "-F" || a == "--output")
-          extraBatsArgs;
-      formatterFlag =
-        if emitNdjson && !callerSetsFormatter then "--formatter tap13" else "";
+      callerSetsFormatter = builtins.any (
+        a: a == "--tap" || a == "-t" || a == "--formatter" || a == "-F" || a == "--output"
+      ) extraBatsArgs;
+      formatterFlag = if emitNdjson && !callerSetsFormatter then "--formatter tap13" else "";
 
       ndjsonInputs = lib.optionals emitNdjson [ tapDancerGo ];
 

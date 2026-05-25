@@ -42,7 +42,7 @@ for the design rationale.
 ```
 nix run .#bats-lane-container -- <bats-source-dir> [test-file ...]
 nix run .#batman-container-self-proof
-just test-batman-container <bats-source-dir> [test-file ...]
+just run-bats-container <bats-source-dir> [test-file ...]
 just test-batman-container-self-proof
 ```
 

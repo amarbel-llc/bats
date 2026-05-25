@@ -23,21 +23,42 @@ The wrapper always sandboxes test commands via `fence` (from the
 
 ## Build & Test
 
-``` sh
-# bats-core upstream tests (test/ tree)
-just test                  # runs `bats test/` in the dev shell
-just check                 # shellcheck on lib/*.bash and libexec/*
-just fmt                   # shfmt formatting
+Conventions follow eng-design_patterns-justfile(7): verb-noun recipe
+names, aggregate-with-no-body, `[group(...)]` lifecycle attributes.
 
-# Batman / bats-libs flake outputs
-just build-batman          # nix build .#default
-just build-bats-libs       # nix build .#bats-libs
-just flake-check               # nix flake check (runs check-bats-libs-path + batman-self-proof)
-just test-batman-fence         # batman.bats under plain nixpkgs bats
-just test-batman-self-proof    # batsLane self-proof inside the nix sandbox
-just test-batman               # aggregate: test-batman-fence + test-batman-self-proof
-just run-batman <args>         # smoke-test the built batman binary
-just clean                     # rm -f result result-*
+``` sh
+just                            # default = CI lane (validate-flake + build + build-devshell + test-batman)
+
+# pre-build
+just validate-flake             # nix flake check (check-bats-libs-path + batman-self-proof + formatting)
+just lint-shell                 # shellcheck on lib/*.bash and libexec/*
+just lint-fmt                   # read-only formatting gate (builds checks.formatting)
+
+# build
+just build                      # aggregate: build-batman + build-bats-libs
+just build-batman               # nix build .#default
+just build-bats-libs            # nix build .#bats-libs
+just build-devshell             # devShell build-check (catches vendor-env breakage)
+
+# post-build
+just test-batman                # aggregate: test-batman-fence + test-batman-self-proof
+just test-batman-fence          # batman.bats under plain nixpkgs bats
+just test-batman-self-proof     # batsLane self-proof inside the nix sandbox
+just test-batman-container-self-proof  # podman container lane (opt-in, not in test-batman)
+just test-bats-core             # upstream bats-core tests (test/ tree, opt-in manual)
+
+# operational
+just run-batman <args>          # smoke-test the built batman binary
+just run-bats-container <args>  # ad-hoc container lane against an arbitrary bats tree
+just deploy-tag <ver> <msg>     # signed annotated tag + push
+just deploy-release <ver>       # bump-version + commit + push + tag + push tag (on master)
+
+# codemod
+just codemod-fmt                # `nix fmt` (nixfmt + shfmt via treefmt-nix; see treefmt.nix)
+
+# maintenance
+just bump-version <ver>         # rewrite BATMAN_VERSION in version.env
+just clean                      # rm -f result result-*
 ```
 
 ## Architecture

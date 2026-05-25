@@ -7,6 +7,10 @@
     nixpkgs.url = "github:amarbel-llc/nixpkgs";
     nixpkgs-master.url = "github:NixOS/nixpkgs/d233902339c02a9c334e7e593de68855ad26c4cb";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
+
+    # `nix fmt` entry point. Config lives in ./treefmt.nix.
+    treefmt-nix.url = "github:numtide/treefmt-nix";
+    treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
     # Previously we declared `tap` as a flake input solely to reach
     # `tap.packages.${system}.tap-dancer-go` for the batsLane
     # `emitNdjson = true` codepath. Tap inputs bats (for bats-libs),
@@ -27,6 +31,7 @@
       nixpkgs,
       nixpkgs-master,
       utils,
+      treefmt-nix,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -69,9 +74,7 @@
         # `gomod2nix.toml`, and Go sources verbatim.
         tapDancerGo = pkgs.buildGoApplication {
           pname = "tap-dancer";
-          version = builtins.elemAt (
-            builtins.match "^VERSION=([^\n]+)\n?$" (builtins.readFile "${tapSrc}/version.env")
-          ) 0;
+          version = builtins.elemAt (builtins.match "^VERSION=([^\n]+)\n?$" (builtins.readFile "${tapSrc}/version.env")) 0;
           src = "${tapSrc}/go";
           pwd = "${tapSrc}/go";
           subPackages = [ "cmd/tap-dancer" ];
@@ -102,9 +105,7 @@
         # Single source of truth for the fork's own release version.
         # version.env is sed-rewritten by `just bump-version` and read
         # here at flake eval time. See docs/eng-versioning(7).
-        batmanVersion = builtins.elemAt (
-          builtins.match "^BATMAN_VERSION=([^\n]+)\n?$" (builtins.readFile ./version.env)
-        ) 0;
+        batmanVersion = builtins.elemAt (builtins.match "^BATMAN_VERSION=([^\n]+)\n?$" (builtins.readFile ./version.env)) 0;
 
         # Git revision of the working tree feeding this flake. `self.rev`
         # is populated only when the source is a clean rev; dirty
@@ -196,6 +197,8 @@
         # users inspect the captured artifacts via
         # `nix build .#batman-ndjson-demo --keep-failed`. See FDR/RFC
         # cross-reference in `packages/batman/doc/bats-lane.7.scd`.
+        treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
+
         batmanNdjsonDemo = batsLaneLib.batsLane {
           name = "batman-ndjson-demo";
           batsSrc = ./packages/batman/zz-tests_bats;
@@ -254,7 +257,10 @@
         checks = {
           check-bats-libs-path = checkBatsLibsPathPkg;
           batman-self-proof = batmanSelfProof;
+          formatting = treefmtEval.config.build.check self;
         };
+
+        formatter = treefmtEval.config.build.wrapper;
 
         # Dev shell carries `just` plus the batman bundle so the
         # justfile recipes (`test-batman-fence`, `test-batman-self-proof`)
@@ -263,9 +269,9 @@
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.just
-            # gum: terminal UI logging used by the maint group's
-            # `tag` / `bump-version` / `release` recipes
-            # (see docs/eng-versioning(7)).
+            # gum: terminal UI logging used by the deploy/maintenance
+            # recipes (`deploy-tag` / `bump-version` / `deploy-release`;
+            # see docs/eng-versioning(7)).
             pkgs.gum
             batmanPkgs.default
           ];
