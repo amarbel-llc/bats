@@ -259,16 +259,28 @@ let
       # Append batman's bats-libs to BATS_LIB_PATH (caller paths take precedence)
       export BATS_LIB_PATH="''${BATS_LIB_PATH:+$BATS_LIB_PATH:}${bats-libs}/share/bats"
 
-      # Default to TAP output unless a formatter flag is already present
+      # Default to TAP output unless a formatter flag is already
+      # present. `--output` is bats's log-dir flag, not a formatter,
+      # so it is intentionally absent from this case (see bats#25).
       has_formatter=false
       for arg in "$@"; do
         case "$arg" in
-          --tap|--formatter|-F|--output) has_formatter=true; break ;;
+          --tap|--formatter|-F) has_formatter=true; break ;;
         esac
       done
-      use_tap14=false
       if ! $has_formatter; then
         set -- "$@" --tap
+      fi
+
+      # `tap-dancer reformat` prepends a `TAP version 14` header. The
+      # split pipeline downstream (`tap-dancer format-ndjson --split`)
+      # rejects input without it, so when split is on we always
+      # reformat — even when the caller passed `--tap` themselves
+      # (bats#24). When split is off, only reformat if we injected
+      # `--tap` ourselves; that preserves the legacy "caller-supplied
+      # formatter passes through untouched" contract.
+      use_tap14=false
+      if $split || ! $has_formatter; then
         use_tap14=true
       fi
 

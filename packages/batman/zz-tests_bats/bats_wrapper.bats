@@ -185,3 +185,47 @@ EOF
   assert_output --partial "not ok 2"
   assert_line --index 0 --regexp "^(TAP version|1\.\.)"
 }
+
+# Regression for bats#24: when the caller passes --tap explicitly, the
+# wrapper must still reformat to TAP-14 before format-ndjson reads it.
+# Previously --tap matched the has_formatter case and use_tap14 stayed
+# false, so format-ndjson saw TAP-13 without a version header and
+# reported "first line must be TAP version 14" in the summary.
+function bats_wrapper_split_summary_valid_when_caller_passes_tap { # @test
+  cat >"${TEST_TMPDIR}/explicit_tap.bats" <<'EOF'
+#! /usr/bin/env bats
+function passing_one { # @test
+  true
+}
+EOF
+  local pass_file="${TEST_TMPDIR}/passes.ndjson"
+  run "$BATS_WRAPPER" --no-sandbox --tap --pass-out "$pass_file" "${TEST_TMPDIR}/explicit_tap.bats"
+  assert_success
+  # The summary record lands on stdout alongside any failure records
+  # under split mode. Its `valid` field reports parse-validity of the
+  # tap-dancer input stream.
+  assert_output --partial '"type":"summary"'
+  assert_output --partial '"valid":true'
+}
+
+# Regression for bats#25: --output is bats's log-dir flag, not a
+# formatter. The wrapper must still inject --tap and reformat. Without
+# the fix, --output triggered has_formatter and the wrapper produced
+# raw bats pretty-printer output (no TAP version header), which then
+# corrupted the downstream format-ndjson pipeline.
+function bats_wrapper_output_flag_does_not_disable_tap { # @test
+  cat >"${TEST_TMPDIR}/with_output.bats" <<'EOF'
+#! /usr/bin/env bats
+function passing_one { # @test
+  true
+}
+EOF
+  local log_dir="${TEST_TMPDIR}/bats-logs"
+  mkdir -p "$log_dir"
+  # --no-split so we can inspect the raw TAP-14 stream on stdout.
+  run "$BATS_WRAPPER" --no-sandbox --no-split --output "$log_dir" "${TEST_TMPDIR}/with_output.bats"
+  assert_success
+  assert_line --index 0 --regexp "^TAP version 14"
+  assert_output --partial "1..1"
+  assert_output --partial "ok 1"
+}
