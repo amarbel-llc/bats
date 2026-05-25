@@ -325,5 +325,4 @@ async function main(): Promise<number> {
   return aggregate;
 }
 
-const code = await main();
-process.exit(code);
+process.exitCode = await main();
