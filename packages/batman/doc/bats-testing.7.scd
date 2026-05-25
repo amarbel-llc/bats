@@ -289,7 +289,10 @@ arguments:
 	Allow localhost binding in sandbox.
 
 *--no-tempdir-cleanup*
-	Keep BATS temp directories after test run.
+	Keep BATS temp directories after test run. Also preserves the
+	wrapper's auto-generated *--pass-out* tmpdir (the one announced
+	on stderr when no explicit *--pass-out* path was supplied).
+	Caller-supplied *--pass-out* paths are never auto-cleaned.
 
 *--no-split*, *--full-output*
 	Bypass the default split-output pipeline and emit the bats

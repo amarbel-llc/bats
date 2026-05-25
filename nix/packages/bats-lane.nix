@@ -321,7 +321,7 @@ let
           ''
             printf '%s\n' '>>> BATSLANE NDJSON BEGIN <<<' >&2
             cat "$out/run.failures.ndjson" >&2
-            pass_count=$(wc -l < "$out/run.passes.ndjson" | tr -d ' ')
+            pass_count=$(wc -l < "$out/run.passes.ndjson")
             printf 'passes: %s record(s) at %s\n' "$pass_count" "$out/run.passes.ndjson" >&2
             printf '%s\n' '>>> BATSLANE NDJSON END <<<' >&2
           ''

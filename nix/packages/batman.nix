@@ -155,6 +155,7 @@ let
       pkgs.git
       pkgs.parallel
       pkgs.python3
+      pkgs.socat
       tap-dancer-go
       fence
     ];

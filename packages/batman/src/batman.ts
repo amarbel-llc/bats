@@ -21,7 +21,6 @@ import * as nodePath from "node:path";
 
 type ParsedArgs = {
   noTempdirCleanup: boolean;
-  fullOutput: boolean;
   dryRun: boolean;
   diagnosticsStderr: boolean;
   positional: string[];
@@ -71,7 +70,6 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   return {
     noTempdirCleanup,
-    fullOutput,
     dryRun,
     diagnosticsStderr,
     positional,
