@@ -144,10 +144,19 @@
         batmanSelfProof = batsLaneLib.batsLane {
           name = "batman-self-proof";
           batsSrc = ./packages/batman/zz-tests_bats;
-          # Enumerate the self-proof's bats files explicitly so artificial
-          # demo files in the same directory (e.g. `ndjson_failure_demo.bats`,
-          # consumed only by `batmanNdjsonDemo`) don't get picked up by the
-          # default `*.bats` glob and break this check.
+          # Enumerate the self-proof's bats files explicitly so:
+          #   1. Artificial demo files in the same directory (e.g.
+          #      `ndjson_failure_demo.bats`, consumed only by
+          #      `batmanNdjsonDemo`) don't get picked up by the default
+          #      `*.bats` glob and break this check.
+          #   2. `bats_wrapper_fence.bats` is intentionally EXCLUDED — its
+          #      tests shell out to `sandbox-exec`, which fails with
+          #      `sandbox_apply: Operation not permitted` inside the nix
+          #      darwin builder (Determinate Nix's nix-daemon attaches
+          #      Seatbelt to all build children, and macOS refuses nested
+          #      `sandbox_apply`). Those tests run host-side via
+          #      `just test-batman-fence-wrapper` and inside the linux
+          #      container via `test-batman-container-self-proof`.
           testFiles = [
             "batman.bats"
             "bats_wrapper.bats"

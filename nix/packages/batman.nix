@@ -353,7 +353,7 @@ let
           set -- --no-tempdir-cleanup "$@"
         fi
 
-        fence --settings "$config" -- bats "$@" | reformat_tap | split_or_passthrough
+        fence --settings "$config" -- ${pkgs.bats}/bin/bats "$@" | reformat_tap | split_or_passthrough
       else
         if $no_tempdir_cleanup; then
           set -- --no-tempdir-cleanup "$@"

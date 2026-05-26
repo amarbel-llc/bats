@@ -50,16 +50,50 @@ build-devshell:
 # --- post-build ---
 
 [group("post-build")]
-test-batman: test-batman-fence test-batman-self-proof
+test-batman: test-batman-fence test-batman-fence-wrapper test-batman-self-proof
 
-# Run batman.bats under PLAIN nixpkgs bats (filters /home/* dirs out of
-# PATH so any user-profile-installed wrapped `bats` does not shadow it).
+# Run batman.bats under PLAIN nixpkgs bats. Filters any $HOME-rooted
+# entries out of PATH so a user-profile-installed wrapped `bats` does
+# not shadow the devshell's nixpkgs bats. The filter pattern covers
+# both linux (/home/...) and darwin (/Users/...) user dirs by anchoring
+# on $HOME rather than hard-coding "/home/".
+#
+# `mkdir -p /tmp/fence` is required because fence sets TMPDIR=/tmp/fence
+# for its sandboxed child; bats picks that up as BATS_TMPDIR and refuses
+# to start if the directory is missing. fence's own integration tests do
+# the same dance.
 [group("post-build")]
 test-batman-fence:
-    @batman=$(nix build --no-link --print-out-paths .#default); \
+    @mkdir -p /tmp/fence; \
+      batman=$(nix build --no-link --print-out-paths .#default); \
       BATMAN_BIN=$batman/bin/batman \
       BATS_LIB_PATH=$batman/share/bats \
-      {{cmd_nix_dev}} bash -c 'PATH=$(echo "$PATH" | tr ":" "\n" | grep -Ev "^/home/" | tr "\n" ":"); exec bats --tap --jobs $(nproc) packages/batman/zz-tests_bats/batman.bats'
+      {{cmd_nix_dev}} bash -c 'PATH=$(echo "$PATH" | tr ":" "\n" | grep -Fv -- "$HOME/" | tr "\n" ":"); exec bats --tap --jobs $(nproc) packages/batman/zz-tests_bats/batman.bats'
+
+# Run bats_wrapper_fence.bats host-side. These tests exercise the
+# fence-wrapped bats path via `$BATS_WRAPPER`; on darwin, Determinate
+# Nix's nix-daemon attaches Seatbelt to every build child and macOS
+# refuses nested `sandbox_apply`, so they cannot run inside `nix build`
+# (see the batman-self-proof comment in flake.nix). Running here at
+# user-shell level means no enclosing Seatbelt, and fence's own
+# sandbox-exec invocation succeeds. See test-batman-fence for the
+# /tmp/fence mkdir rationale and the $HOME-rooted PATH filter.
+#
+# `--no-sandbox` is required because the user's PATH typically resolves
+# `bats` to the batman wrapper itself (the $HOME filter strips
+# user-installed binaries but the devshell PATH may still surface the
+# wrapper). If the OUTER bats fence-wraps, every inner
+# `$BATS_WRAPPER` invocation inside the .bats file would be a nested
+# fence call, which fails. `--no-sandbox` at the outer level keeps the
+# inner-wrapper-asserting tests as the only fence path under test.
+[group("post-build")]
+test-batman-fence-wrapper:
+    @mkdir -p /tmp/fence; \
+      batman=$(nix build --no-link --print-out-paths .#default); \
+      BATMAN_BIN=$batman/bin/batman \
+      BATS_WRAPPER=$batman/bin/bats \
+      BATS_LIB_PATH=$batman/share/bats \
+      {{cmd_nix_dev}} bash -c 'PATH=$(echo "$PATH" | tr ":" "\n" | grep -Fv -- "$HOME/" | tr "\n" ":"); exec bats --no-sandbox --tap packages/batman/zz-tests_bats/bats_wrapper_fence.bats'
 
 # Run the batsLane self-proof: batman's own bats suite executed via the
 # batsLane builder this repo exports, inside the nix sandbox. Picks up
@@ -67,7 +101,7 @@ test-batman-fence:
 # pointed at the built batman bundle. Also runs as part of validate-flake.
 [group("post-build")]
 test-batman-self-proof:
-    nix build --no-link --print-out-paths .#checks.x86_64-linux.batman-self-proof
+    nix build --no-link --print-out-paths ".#checks.$(nix eval --raw --impure --expr builtins.currentSystem).batman-self-proof"
 
 # Run batman's tests inside a podman container built from a nix OCI
 # image (the container lane). Sibling to test-batman-self-proof and
@@ -217,3 +251,10 @@ debug-batman-ndjson:
     -nix build .#batman-ndjson-demo 2>&1 \
       | sed -n '/BATSLANE NDJSON BEGIN/,/BATSLANE NDJSON END/p' \
       | sed '1d;$d'
+
+# Print the full nix build log for a given .drv path. Wrapper around
+# `nix log` so the recipe is allowlisted and runs without permission
+# prompts when an agent is investigating a failed build.
+[group("debug")]
+debug-nix-log drv:
+    nix log {{drv}}
