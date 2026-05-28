@@ -2,8 +2,10 @@
   description = "Bash Automated Testing System (bats-core) + amarbel-llc batman test orchestrator and bats helper libs";
 
   inputs = {
-    # Fork of upstream nixpkgs. The overlay (`overlays.default`) adds
-    # fence, buildZxScriptFromFile, gomod2nix's buildGoApplication, etc.
+    # Fork of upstream nixpkgs. Its default.nix shim auto-applies the
+    # fork overlay on `import nixpkgs { ... }`, so fence,
+    # buildZxScriptFromFile, gomod2nix's buildGoApplication, etc. are
+    # present without a manual overlays list (see amarbel-llc/eng#60).
     nixpkgs.url = "github:amarbel-llc/nixpkgs";
     nixpkgs-master.url = "github:NixOS/nixpkgs/d233902339c02a9c334e7e593de68855ad26c4cb";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
@@ -36,11 +38,12 @@
     utils.lib.eachDefaultSystem (
       system:
       let
-        # nixpkgs is the amarbel-llc fork; overlays.default exposes
-        # buildZxScriptFromFile, fence, and other amarbel additions.
+        # nixpkgs is the amarbel-llc fork; its default.nix shim
+        # auto-applies the fork overlay, so `import nixpkgs { ... }`
+        # already exposes buildZxScriptFromFile, fence, buildGoApplication,
+        # and other amarbel additions without a manual overlays list.
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ nixpkgs.overlays.default ];
         };
 
         # pkgs-master sources the Go toolchain we use to build the
