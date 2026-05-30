@@ -216,6 +216,19 @@ tap-dancer format-ndjson [--split]          → split or combined NDJSON
 	single combined *run.ndjson* file plus a full inline build-log
 	echo.
 
+*failOnTestFailure*
+	A bool (default true). Applies to both the stamp form and the
+	*emitNdjson* form. Default true preserves the strict gating
+	contract: a bats failure fails the derivation and nix discards
+	*$out*. Set false to make the derivation exit 0 even when bats
+	reported failures, retaining *$out* (and its captured NDJSON
+	artifacts) for a downstream derivation to read. The real bats
+	status is still recorded to *$out/exit_code* under *emitNdjson*.
+	This is the mechanism behind *checks.${system}.batman-ndjson-shape*
+	(see amarbel-llc/bats#13), which validates the NDJSON shape of a
+	deliberately failing demo suite without the failure aborting the
+	check.
+
 *tapDancerGo*
 	A derivation override (default: the top-level *tap-dancer-go*
 	passed when this file is imported). Ignored unless
@@ -234,10 +247,15 @@ When *emitNdjson = true*, *$out* is a *directory*. Under the default
 ```
 run.raw.tap            # bats's raw TAP-13 output (pre-reformat)
 run.tap                # TAP-14 with version header (tap-dancer reformat)
-run.failures.ndjson    # NDJSON failure records (stdout of --split)
-run.passes.ndjson      # NDJSON passing records (--pass-out target)
+run.failures.ndjson    # failing-test + bail-out records, + summary
+run.passes.ndjson      # passing-test records, + summary
 exit_code              # bats's exit status as a one-line decimal
 ```
+
+The trailing *summary* record is written to *both* split files, so
+code counting test results should filter on *type == "test"* rather
+than assuming one record per line is a test. The shape of these
+files is regression-checked by *checks.${system}.batman-ndjson-shape*.
 
 Under *splitNdjson = false*:
 

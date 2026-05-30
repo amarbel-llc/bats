@@ -165,6 +165,19 @@ let
       # inline echo of every record.
       splitNdjson ? true,
 
+      # When false, the derivation exits 0 even if bats reported test
+      # failures, leaving `$out` (the stamp file, or — under
+      # `emitNdjson = true` — the captured artifact directory) in place
+      # for a downstream derivation to consume. Defaults to true, which
+      # preserves the strict gating contract: a bats failure fails the
+      # build and nix discards `$out`. The soft form exists so a sibling
+      # check can validate the NDJSON shape of a *deliberately failing*
+      # suite without that failure aborting the build (see
+      # `checks.batman-ndjson-shape` and amarbel-llc/bats#13). The bats
+      # exit status is still recorded to `$out/exit_code` under
+      # `emitNdjson`, so consumers can recover the real outcome.
+      failOnTestFailure ? true,
+
       # Per-call override of the `tap-dancer-go` derivation used when
       # `emitNdjson = true`. Falls back to the top-level `tap-dancer-go`
       # arg of this file. Ignored when `emitNdjson = false`.
@@ -244,17 +257,31 @@ let
 
       ndjsonInputs = lib.optionals emitNdjson [ tapDancerGo ];
 
-      # Stamp-file form (back-compat): bats failure → derivation failure;
-      # $out is an empty regular file on success.
+      # Final exit shared by both invocation forms. Strict (the default)
+      # propagates bats's status so a failing suite fails the build;
+      # soft (`failOnTestFailure = false`) always exits 0, leaving `$out`
+      # for a downstream consumer. Both forms set `$bats_status` first.
+      gateExit = if failOnTestFailure then ''exit "$bats_status"'' else "exit 0";
+
+      # Stamp-file form (back-compat): under the default strict gating a
+      # bats failure fails the derivation and `$out` is an empty regular
+      # file only on success. errexit is disabled around the bats call so
+      # the status can be captured and routed through `gateExit` — the
+      # net behavior under `failOnTestFailure = true` is unchanged
+      # (success → stamp; failure → derivation failure, `$out` discarded).
       stampInvocation = ''
         cd stage/zz-tests_bats
+        set +o errexit
         ${bats}/bin/bats \
           --jobs $NIX_BUILD_CORES \
           ${filterFlag} \
           ${extraBatsArgsStr} \
           ${testFilesStr}
+        bats_status=$?
+        set -o errexit
 
         touch $out
+        ${gateExit}
       '';
 
       # NDJSON form: $out is a directory carrying `run.raw.tap`,
@@ -336,7 +363,7 @@ let
         # full log including this block. Agents extracting the NDJSON
         # programmatically can sed/awk between the BEGIN/END markers.
         ${ndjsonEchoStep}
-        exit "$bats_status"
+        ${gateExit}
       '';
 
       batsInvocation = if emitNdjson then ndjsonInvocation else stampInvocation;

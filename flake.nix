@@ -202,17 +202,19 @@
           batmanTestsSrc = ./packages/batman/zz-tests_bats;
         };
 
-        # NDJSON prototype: drives the artificial-failure suite through
-        # the new `emitNdjson = true` codepath in batsLane. Always fails
-        # to build (the demo suite contains a deliberately failing test),
-        # so it is exposed only as a `package` — NOT a `check` — and
-        # users inspect the captured artifacts via
-        # `nix build .#batman-ndjson-demo --keep-failed`. See FDR/RFC
-        # cross-reference in `packages/batman/doc/bats-lane.7.scd`.
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
 
-        batmanNdjsonDemo = batsLaneLib.batsLane {
-          name = "batman-ndjson-demo";
+        # NDJSON demo: drives the artificial-failure suite through the
+        # `emitNdjson = true` codepath in batsLane. Shared args feed two
+        # derivations:
+        #   - batman-ndjson-demo (strict): always FAILS to build (the
+        #     demo suite has a deliberately failing test), exposed only
+        #     as a `package` for `nix build … --keep-failed` inspection.
+        #   - batman-ndjson-demo-soft (failOnTestFailure = false): builds
+        #     successfully, leaving the captured NDJSON in $out so the
+        #     batman-ndjson-shape check can assert its shape (#13).
+        # See FDR-0003 + `packages/batman/doc/bats-lane.7.scd`.
+        ndjsonDemoArgs = {
           batsSrc = ./packages/batman/zz-tests_bats;
           testFiles = [ "ndjson_failure_demo.bats" ];
           binaries = {
@@ -227,6 +229,23 @@
           };
           batsLibPath = [ batmanPkgs.bats-libs.batsLibPath ];
           emitNdjson = true;
+        };
+
+        batmanNdjsonDemo = batsLaneLib.batsLane (ndjsonDemoArgs // { name = "batman-ndjson-demo"; });
+
+        batmanNdjsonDemoSoft = batsLaneLib.batsLane (
+          ndjsonDemoArgs
+          // {
+            name = "batman-ndjson-demo-soft";
+            failOnTestFailure = false;
+          }
+        );
+
+        # Flake check (#13): assert the NDJSON shape of the soft demo's
+        # captured output end-to-end against the pinned tap-dancer.
+        checkNdjsonShape = import ./nix/packages/check-ndjson-shape.nix {
+          inherit pkgs;
+          ndjsonDir = batmanNdjsonDemoSoft;
         };
       in
       {
@@ -253,6 +272,7 @@
           bats-lane-container = containerLane.runner;
           batman-container-self-proof = containerLane.selfProof;
           batman-ndjson-demo = batmanNdjsonDemo;
+          batman-ndjson-demo-soft = batmanNdjsonDemoSoft;
         };
 
         apps = {
@@ -269,6 +289,7 @@
         checks = {
           check-bats-libs-path = checkBatsLibsPathPkg;
           batman-self-proof = batmanSelfProof;
+          batman-ndjson-shape = checkNdjsonShape;
           formatting = treefmtEval.config.build.check self;
         };
 

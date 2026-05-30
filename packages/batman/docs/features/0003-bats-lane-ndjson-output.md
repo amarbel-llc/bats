@@ -55,14 +55,23 @@ existing TAP stream.
   failing bats case) and a debug-group justfile recipe
   `test-batman-ndjson-demo` that extracts the NDJSON block from a
   build run.
+- A new `failOnTestFailure` argument on `batsLane`. Default `true`
+  (strict gating, unchanged). When `false` the derivation exits 0
+  even if bats reported failures, leaving `$out` (and its captured
+  NDJSON artifacts) in place for a downstream derivation to read.
+- A `batman-ndjson-demo-soft` package (the demo suite run with
+  `failOnTestFailure = false`) and a `checks.${system}.batman-ndjson-shape`
+  flake check that `jq`-asserts the soft demo's NDJSON shape
+  end-to-end against the pinned `tap-dancer` (amarbel-llc/bats#13).
 
 ### Out
 
-- **Soft-lane mode** (`failOnTestFailure = false`) that always
-  produces `$out` regardless of test outcome. The strict gating
-  semantics that match the existing `batsLane` contract are
-  preserved. Considered a future iteration if `--keep-failed`
-  ergonomics or the stderr-marker affordance prove inadequate.
+- **Full soft-lane ergonomics beyond the check enabler.** The
+  `failOnTestFailure` arg landed (see *In*) to let the shape check
+  consume a deliberately-failing suite's output. Broader soft-lane
+  use cases (e.g. surfacing artifacts from a lane consumers *expect*
+  to fail) are unlocked by the same arg but not separately exercised
+  here.
 - **Multi-output derivation** (`outputs = ["out" "ndjson"]`) so
   the NDJSON survives even when the gating exit fails. Deferred for
   the same reason.
@@ -88,6 +97,7 @@ batsLane {
 
   emitNdjson = true;          # NEW — default false
   # splitNdjson = false;       # NEW — default true; false = combined run.ndjson
+  # failOnTestFailure = false; # NEW — default true; false = exit 0, keep $out
   # tapDancerGo = ...;         # optional per-call override
 }
 ```
@@ -112,13 +122,21 @@ When `emitNdjson = true`:
       (passing records), produced by
       `tap-dancer format-ndjson --split --pass-out`. Both files are
       always created — even on all-pass or all-fail runs — so
-      consumers can read them unconditionally.
+      consumers can read them unconditionally. Note: the trailing
+      `summary` record is written to **both** files (observed
+      empirically from the pinned `tap-dancer`), so a consumer
+      counting test records should filter on `type == "test"`.
     - `splitNdjson = false`: a single combined `run.ndjson` — one
       JSON record per top-level test plus a trailing summary record.
   - `exit_code` — bats's exit status as a one-line decimal.
-- The derivation succeeds iff bats succeeds. On failure the
-  directory is discarded by nix (preserved with
-  `nix build --keep-failed` at its store path).
+- The derivation succeeds iff bats succeeds (the default,
+  `failOnTestFailure = true`). On failure the directory is discarded
+  by nix (preserved with `nix build --keep-failed` at its store
+  path). With `failOnTestFailure = false` the derivation instead
+  exits 0 and `$out` is retained regardless of test outcome; the
+  real bats status is still recorded to `$out/exit_code`. This is
+  how `batman-ndjson-shape` reads the NDJSON of a deliberately
+  failing suite without the failure aborting the check.
 - The NDJSON is echoed to stderr inside the build between
   `>>> BATSLANE NDJSON BEGIN <<<` and `>>> BATSLANE NDJSON END <<<`
   markers, so it shows up in nix's default failure log tail. In
@@ -275,14 +293,29 @@ This is one-shot evidence of the ergonomics goal, not a
 proof. Promotion criteria below define what would constitute
 recurring evidence.
 
+Recurring evidence now comes from `checks.${system}.batman-ndjson-shape`
+(`nix/packages/check-ndjson-shape.nix`). It builds the soft demo
+(`batman-ndjson-demo-soft`) and `jq`-asserts the captured records:
+the passes file holds a passing test record (and no failing one);
+the failures file holds the failing test record with a non-empty
+`diagnostic.message` plus exactly one `summary` record; and the
+summary reports `passed:1 failed:1 total:2 bailed:false valid:true`.
+The `valid:true` assertion doubles as a regression guard for
+amarbel-llc/bats#24 (the `TAP version 14` header must survive the
+`reformat` stage). Because it runs under `nix flake check`, any
+drift in the pinned `tap-dancer`'s record shape fails CI / the
+`just` merge hook.
+
 ## Follow-ups (not in scope here)
 
 - **Promote RFC 0001 to `accepted` upstream** in
   `amarbel-llc/tap`, then pin this lane to a tap rev that matches
   the accepted schema. Required for `experimental → testing`.
-- **Add a flake check** that builds `batman-ndjson-demo` (expecting
-  failure), extracts the NDJSON via the markers, and
-  `jq`-asserts on record fields.
+- **Add a flake check** that builds the demo and `jq`-asserts on
+  record fields. **Done** — `checks.${system}.batman-ndjson-shape`
+  builds `batman-ndjson-demo-soft` (the `failOnTestFailure = false`
+  variant, so the build succeeds) and asserts the record shape
+  on-disk rather than scraping the stderr markers (amarbel-llc/bats#13).
 - **Replace the `|| true` / `|| cp` fallbacks** with explicit
   error records or hard fails. The current swallow-and-continue
   posture made sense in the prototype to avoid masking bats
@@ -293,9 +326,11 @@ recurring evidence.
 - **Tighten formatter-flag detection** or change strategy entirely
   (e.g. always run with `--formatter tap13` when `emitNdjson`,
   raise an error if the caller passes a conflicting formatter).
-- **Soft-lane variant.** If consumers find `--keep-failed` and the
-  stderr-marker pattern insufficient, add `failOnTestFailure =
-  false` so `$out` is always preserved.
+- **Soft-lane variant.** **Done** — `failOnTestFailure = false`
+  preserves `$out` regardless of test outcome (added as the
+  enabler for the shape check above). Consumers who find
+  `--keep-failed` + the stderr markers insufficient can now use it
+  directly.
 - **Multi-output derivation.** Same trigger; cleaner than the soft
   lane because `outputs = ["out" "ndjson"]` would keep the gating
   contract intact while exposing the NDJSON via `result-ndjson`.
@@ -310,7 +345,7 @@ For `experimental → testing`:
 - Tap RFC 0001 reaches `accepted` upstream, OR the tap input is
   pinned to a rev that has passed local schema regression checks.
 - A flake check (per *Follow-ups*) validates NDJSON shape on every
-  CI run.
+  CI run. **Done** — `checks.${system}.batman-ndjson-shape`.
 - At least one downstream consumer (bob, dodder, …) enables
   `emitNdjson = true` for its own lane and uses the resulting
   records in its workloops.
