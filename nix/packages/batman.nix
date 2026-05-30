@@ -202,6 +202,19 @@ let
             allow_local_binding=true
             shift
             ;;
+          --allow-unix-sockets)
+            # Deprecated no-op (bats#27): a sandcastle-era flag for
+            # pcscd / AF_UNIX socket access. The fence backend has no
+            # equivalent toggle, so under fence this flag has always been
+            # a no-op; it is accepted for CLI back-compat and ignored.
+            # Recognized here rather than forwarded to bats-core, which
+            # would reject the unknown option with an opaque "Bad command
+            # line option" error before any test runs. (Whether AF_UNIX
+            # access still works under fence's policy is a separate
+            # question tracked in the issue.)
+            echo "bats wrapper: --allow-unix-sockets is deprecated and ignored (no-op); the fence backend has no AF_UNIX toggle. See https://github.com/amarbel-llc/bats/issues/27" >&2
+            shift
+            ;;
           --no-tempdir-cleanup)
             no_tempdir_cleanup=true
             shift

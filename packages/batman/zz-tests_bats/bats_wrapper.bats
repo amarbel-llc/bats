@@ -59,6 +59,30 @@ EOF
   assert_success
 }
 
+# Regression for bats#27: --allow-unix-sockets was a sandcastle-era flag
+# (pcscd / AF_UNIX access). The fence-backed wrapper has no equivalent
+# toggle, but it must still RECOGNIZE the flag as a deprecated no-op and
+# warn — not forward it to bats-core, which rejects unknown options with
+# "Bad command line option" before any test runs (yielding an opaque
+# total:0 / no-plan failure downstream).
+function bats_wrapper_allow_unix_sockets_is_deprecated_noop { # @test
+  cat >"${TEST_TMPDIR}/unix_sockets.bats" <<'EOF'
+#! /usr/bin/env bats
+function truth { # @test
+  true
+}
+EOF
+  run "$BATS_WRAPPER" --no-sandbox --no-split --allow-unix-sockets "${TEST_TMPDIR}/unix_sockets.bats"
+  assert_success
+  # The flag must not leak through to bats-core.
+  refute_output --partial "Bad command line option"
+  # The suite still runs and emits its TAP-14 plan.
+  assert_output --partial "1..1"
+  assert_output --partial "ok 1"
+  # The wrapper announces the deprecation (stderr, merged into output).
+  assert_output --partial "--allow-unix-sockets"
+}
+
 function bats_wrapper_split_emits_failures_only_on_stdout { # @test
   cat >"${TEST_TMPDIR}/mixed.bats" <<'EOF'
 #! /usr/bin/env bats
