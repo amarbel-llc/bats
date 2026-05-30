@@ -257,6 +257,25 @@ code counting test results should filter on *type == "test"* rather
 than assuming one record per line is a test. The shape of these
 files is regression-checked by *checks.${system}.batman-ndjson-shape*.
 
+If a pipeline stage (*tap-dancer reformat* or *format-ndjson*)
+malfunctions, batsLane appends a synthetic error record to the failure
+stream (*run.failures.ndjson*, or *run.ndjson* in combined mode) and
+echoes it in a dedicated stderr block delimited by
+*>>> BATSLANE NDJSON ERROR <<<* / *>>> BATSLANE NDJSON ERROR END <<<*:
+
+```
+{"type":"error","stage":"format-ndjson","exit":1,"message":"<stderr>"}
+```
+
+This is a *batsLane extension*, not an RFC 0001 record — consumers
+parsing the NDJSON should ignore unknown *type* values. A stage is
+flagged as broken only when it exits non-zero *and* writes to stderr:
+*format-ndjson* exits non-zero merely when the TAP stream contained
+failing tests, which is a normal outcome rather than a malfunction. A
+stage malfunction does not change the derivation's exit status (bats
+remains the gating signal); it is surfaced loudly instead of silently
+degrading to empty output (amarbel-llc/bats#14).
+
 Under *splitNdjson = false*:
 
 ```

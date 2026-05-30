@@ -302,18 +302,39 @@ let
       # preserved: every record lands in `run.ndjson` and is echoed
       # inline.
       #
-      # We disable errexit around the bats call so a failed test run
-      # still gets converted to NDJSON before the derivation exits
-      # with the bats status. On bats failure the directory is only
-      # preserved via `nix build --keep-failed`. The bats exit status
-      # is the gating signal; reformat/format-ndjson exit codes are
-      # ignored so we don't double-fail or mask the bats outcome.
+      # errexit stays OFF for the whole post-bats tail (see
+      # `ndjsonInvocation`) so each stage's exit status can be captured
+      # and handled explicitly. The bats exit status remains the only
+      # gating signal; a `reformat` / `format-ndjson` malfunction does
+      # NOT fail the derivation. But — unlike the old silent `|| true` /
+      # `|| cp` — a malfunction is recorded as an explicit
+      # `{"type":"error",...}` record in the failure stream and echoed in
+      # a dedicated stderr block, so "no failures" is distinguishable
+      # from "tap-dancer broke." See amarbel-llc/bats#14.
+      #
+      # Detection note: `format-ndjson` exits non-zero when the TAP
+      # stream merely *contained failing tests* (a normal outcome), so a
+      # non-zero exit alone is NOT a malfunction. A real tap-dancer error
+      # writes to stderr, while "tests failed" is silent — so a stage is
+      # treated as broken only when it exits non-zero AND wrote to
+      # stderr. The exit code is still captured into the error record.
+
+      # Where failing-test records (and batsLane's synthetic stage-error
+      # records) land: the failures file in split mode, the combined file
+      # otherwise.
+      failureStream = if splitNdjson then "run.failures.ndjson" else "run.ndjson";
+
+      # Runs format-ndjson, capturing its status into `format_status` and
+      # its stderr into `format_err`, and guarantees the output file(s)
+      # exist. No `|| true`: the caller inspects `format_status`.
       ndjsonRenderStep =
         if splitNdjson then
           ''
+            format_err="$(mktemp)"
             ${tapDancerGo}/bin/tap-dancer format-ndjson --split \
               --pass-out "$out/run.passes.ndjson" \
-              < "$out/run.tap" > "$out/run.failures.ndjson" || true
+              < "$out/run.tap" > "$out/run.failures.ndjson" 2> "$format_err"
+            format_status=$?
             # Ensure both files exist even on all-pass / all-fail runs,
             # so downstream consumers can unconditionally read them.
             [ -e "$out/run.failures.ndjson" ] || : > "$out/run.failures.ndjson"
@@ -321,8 +342,11 @@ let
           ''
         else
           ''
+            format_err="$(mktemp)"
             ${tapDancerGo}/bin/tap-dancer format-ndjson \
-              < "$out/run.tap" > "$out/run.ndjson" || true
+              < "$out/run.tap" > "$out/run.ndjson" 2> "$format_err"
+            format_status=$?
+            [ -e "$out/run.ndjson" ] || : > "$out/run.ndjson"
           '';
       ndjsonEchoStep =
         if splitNdjson then
@@ -342,7 +366,33 @@ let
       ndjsonInvocation = ''
         mkdir -p "$out"
         cd stage/zz-tests_bats
+        # errexit off for the whole tail: every stage status is captured
+        # and handled explicitly below.
         set +o errexit
+
+        # batsLane synthetic error records (a batsLane extension, NOT an
+        # RFC 0001 record). Accumulated in a temp file, appended to the
+        # failure stream after format-ndjson writes it, and echoed in a
+        # dedicated stderr block.
+        ndjson_error=0
+        ndjson_errors="$(mktemp)"
+        ndjson_json_escape() {
+          # Escape file $1 into a single JSON string body: backslash,
+          # double-quote, tab; newlines joined as \n.
+          awk 'BEGIN { ORS = "" }
+            {
+              gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t")
+              if (NR > 1) printf "\\n"
+              printf "%s", $0
+            }' "$1"
+        }
+        ndjson_record_stage_error() {
+          # Args: <stage> <exit-code> <stderr-file>.
+          ndjson_error=1
+          printf '{"type":"error","stage":"%s","exit":%s,"message":"%s"}\n' \
+            "$1" "$2" "$(ndjson_json_escape "$3")" >> "$ndjson_errors"
+        }
+
         ${bats}/bin/bats \
           --jobs $NIX_BUILD_CORES \
           ${filterFlag} \
@@ -351,18 +401,49 @@ let
           ${testFilesStr} \
           > "$out/run.raw.tap"
         bats_status=$?
-        set -o errexit
+
+        reformat_err="$(mktemp)"
         ${tapDancerGo}/bin/tap-dancer reformat \
-          < "$out/run.raw.tap" > "$out/run.tap" || cp "$out/run.raw.tap" "$out/run.tap"
+          < "$out/run.raw.tap" > "$out/run.tap" 2> "$reformat_err"
+        reformat_status=$?
+        if [ "$reformat_status" -ne 0 ]; then
+          # Keep raw TAP as run.tap so format-ndjson still has input.
+          cp "$out/run.raw.tap" "$out/run.tap"
+          # Only a real reformat error (something on stderr) is a stage
+          # failure; reformat has no "tests failed" exit convention.
+          if [ -s "$reformat_err" ]; then
+            ndjson_record_stage_error reformat "$reformat_status" "$reformat_err"
+          fi
+        fi
+
         ${ndjsonRenderStep}
+        # format-ndjson exits non-zero when the TAP contained failing
+        # tests (normal), so flag it as broken only when it also wrote to
+        # stderr — see the detection note above.
+        if [ "$format_status" -ne 0 ] && [ -s "$format_err" ]; then
+          ndjson_record_stage_error format-ndjson "$format_status" "$format_err"
+        fi
+
+        # Append any synthetic error records to the failure stream, after
+        # format-ndjson's > redirect so they are not clobbered.
+        cat "$ndjson_errors" >> "$out/${failureStream}"
+
         echo "$bats_status" > "$out/exit_code"
-        # Echo NDJSON to stderr between sentinel markers so the nix
-        # builder log carries the captured records inline. On failure,
-        # `nix build` prints the build-log tail to the user
-        # automatically; for any run, `nix log <drv>` retrieves the
-        # full log including this block. Agents extracting the NDJSON
-        # programmatically can sed/awk between the BEGIN/END markers.
+
+        # Echo the NDJSON to stderr between sentinel markers so the nix
+        # builder log carries the captured records inline; `nix log <drv>`
+        # retrieves them for any past build. Agents sed/awk between the
+        # BEGIN/END markers.
         ${ndjsonEchoStep}
+
+        # Distinct, loud block when a pipeline stage failed, so a broken
+        # tap-dancer is not mistaken for a clean run with no failures.
+        if [ "$ndjson_error" -ne 0 ]; then
+          printf '%s\n' '>>> BATSLANE NDJSON ERROR <<<' >&2
+          cat "$ndjson_errors" >&2
+          printf '%s\n' '>>> BATSLANE NDJSON ERROR END <<<' >&2
+        fi
+
         ${gateExit}
       '';
 

@@ -257,11 +257,13 @@ tap-dancer hiccup doesn't mask the bats outcome. (See
   validates record structure end-to-end. If upstream's
   `format-ndjson` changes shape or starts emitting invalid JSON,
   the only signal is a downstream parsing failure.
-- **Silent fallbacks in the pipeline.** `tap-dancer reformat` and
-  `format-ndjson` failures are swallowed by `|| true` / `|| cp`.
-  An upstream regression that breaks one of these silently degrades
-  to "no NDJSON, no marker block" rather than failing loud. Worth
-  hardening before promotion to `accepted`.
+- **Silent fallbacks in the pipeline.** *Resolved* (amarbel-llc/bats#14).
+  `reformat` / `format-ndjson` malfunctions are now recorded as explicit
+  `{"type":"error",...}` records + a stderr ERROR block rather than
+  swallowed by `|| true` / `|| cp`. Detection keys on stderr (a non-zero
+  `format-ndjson` exit just means the TAP had failing tests). A
+  malfunction still does not fail the derivation — bats remains the
+  gating signal — but it is no longer invisible.
 - **Formatter-flag detection is naive.** The check for a
   caller-supplied formatter compares `extraBatsArgs` entries to a
   fixed set (`--tap`, `-t`, `--formatter`, `-F`, `--output`).
@@ -316,11 +318,17 @@ drift in the pinned `tap-dancer`'s record shape fails CI / the
   builds `batman-ndjson-demo-soft` (the `failOnTestFailure = false`
   variant, so the build succeeds) and asserts the record shape
   on-disk rather than scraping the stderr markers (amarbel-llc/bats#13).
-- **Replace the `|| true` / `|| cp` fallbacks** with explicit
-  error records or hard fails. The current swallow-and-continue
-  posture made sense in the prototype to avoid masking bats
-  outcomes; once the schema is stable, tap-dancer breakage should
-  be loud.
+- **Replace the `|| true` / `|| cp` fallbacks** with explicit error
+  records. **Done** (amarbel-llc/bats#14) — a `reformat` /
+  `format-ndjson` malfunction now appends a `{"type":"error",...}`
+  record to the failure stream and echoes a dedicated
+  `>>> BATSLANE NDJSON ERROR <<<` block, instead of degrading
+  silently. Detection keys on stderr output, not exit code: empirically
+  `format-ndjson` exits non-zero whenever the TAP merely *contained*
+  failing tests (a normal outcome), so exit code alone is not a
+  malfunction signal — the old `|| true` was masking that benign exit,
+  not a real error. The error record is a batsLane extension, not an
+  RFC 0001 record.
 - **Broaden test coverage** to exercise `output` capture,
   bats-assert diff output, skip/todo directives, and bailouts.
 - **Tighten formatter-flag detection** or change strategy entirely

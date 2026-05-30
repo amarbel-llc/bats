@@ -79,6 +79,15 @@ pkgs.runCommandLocal "batman-ndjson-shape"
                 | .valid == true and .passed == 1 and .failed == 1
                   and .total == 2 and .bailed == false' "$failures"
 
+    # Healthy run: no batsLane synthetic stage-error records in either
+    # stream. Guards the negative case of the #14 error path — a
+    # {"type":"error",...} record must appear only when reformat or
+    # format-ndjson actually fails, never on a clean pipeline.
+    assert "no batsLane error records in the passes file" \
+      jq -se 'all(.[]; .type != "error")' "$passes"
+    assert "no batsLane error records in the failures file" \
+      jq -se 'all(.[]; .type != "error")' "$failures"
+
     mkdir -p "$out"
     echo ok > "$out/result.txt"
   ''
