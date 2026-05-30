@@ -29,18 +29,28 @@ existing TAP stream.
 
 - A new `emitNdjson` argument on `batsLane`. Default `false` —
   existing callers are unaffected.
+- A new `splitNdjson` argument on `batsLane`. Default `true` — when
+  `emitNdjson = true`, failure and pass records are written to
+  separate `$out/run.failures.ndjson` and `$out/run.passes.ndjson`
+  files. Set `false` to fall back to a single combined
+  `$out/run.ndjson`.
 - A new top-level `tap-dancer-go` argument on the
   `nix/packages/bats-lane.nix` import (already plumbed by this
   repo's `flake.nix`), plus a per-call `tapDancerGo` override.
 - When `emitNdjson = true`: a three-stage pipeline that captures
   bats output, normalizes it to TAP-14, and converts to NDJSON. The
   derivation's `$out` becomes a directory carrying `run.raw.tap`,
-  `run.tap`, `run.ndjson`, and `exit_code`.
+  `run.tap`, `exit_code`, plus either `run.failures.ndjson` +
+  `run.passes.ndjson` (when `splitNdjson = true`, the default) or a
+  combined `run.ndjson` (when `splitNdjson = false`).
 - An ergonomics affordance: the build script echoes the NDJSON to
   stderr between sentinel markers
   (*>>> BATSLANE NDJSON BEGIN <<<* / *>>> BATSLANE NDJSON END <<<*),
   so nix's default failure log tail surfaces the captured records
-  without `--keep-failed` or any sidecar tooling.
+  without `--keep-failed` or any sidecar tooling. In split mode the
+  inline echo carries only the failure records plus a
+  `passes: N record(s) at <path>` summary line, keeping the build
+  log focused on what went wrong.
 - A demonstration package `batman-ndjson-demo` (one passing + one
   failing bats case) and a debug-group justfile recipe
   `test-batman-ndjson-demo` that extracts the NDJSON block from a
@@ -62,10 +72,10 @@ existing TAP stream.
 - **Pinning to a stable schema.** RFC 0001 is currently `proposed`
   in upstream tap. The lane consumes whatever shape the pinned
   `tap-dancer-go` rev emits.
-- **Recording NDJSON on success.** A successful build produces
-  `$out/run.ndjson` like any other run, but consumers haven't yet
-  asked for a "passes too" stream and the existing `nix build -L`
-  is enough for that case.
+
+(Note: *Recording NDJSON on success* was originally deferred here, but
+split-by-default made it part of the accepted interface — `splitNdjson
+= true` writes `run.passes.ndjson` unconditionally. See *Interface*.)
 
 ## Interface
 
@@ -77,6 +87,7 @@ batsLane {
   batsLibPath = [ batmanPkgs.bats-libs.batsLibPath ];
 
   emitNdjson = true;          # NEW — default false
+  # splitNdjson = false;       # NEW — default true; false = combined run.ndjson
   # tapDancerGo = ...;         # optional per-call override
 }
 ```
@@ -94,15 +105,26 @@ When `emitNdjson = true`:
   - `run.raw.tap` — bats's raw TAP-13 output.
   - `run.tap` — TAP-14 (with `TAP version 14` header) via
     `tap-dancer reformat`.
-  - `run.ndjson` — one JSON record per top-level test plus a
-    trailing summary record, per amarbel-llc/tap RFC 0001.
+  - The NDJSON records, per amarbel-llc/tap RFC 0001. The shape
+    depends on `splitNdjson`:
+    - `splitNdjson = true` (the default): `run.failures.ndjson`
+      (failure and bail-out records) and `run.passes.ndjson`
+      (passing records), produced by
+      `tap-dancer format-ndjson --split --pass-out`. Both files are
+      always created — even on all-pass or all-fail runs — so
+      consumers can read them unconditionally.
+    - `splitNdjson = false`: a single combined `run.ndjson` — one
+      JSON record per top-level test plus a trailing summary record.
   - `exit_code` — bats's exit status as a one-line decimal.
 - The derivation succeeds iff bats succeeds. On failure the
   directory is discarded by nix (preserved with
   `nix build --keep-failed` at its store path).
 - The NDJSON is echoed to stderr inside the build between
   `>>> BATSLANE NDJSON BEGIN <<<` and `>>> BATSLANE NDJSON END <<<`
-  markers, so it shows up in nix's default failure log tail.
+  markers, so it shows up in nix's default failure log tail. In
+  split mode (the default) only the failure records are echoed,
+  followed by a `passes: N record(s) at <path>` summary line; in
+  combined mode every record is echoed.
 - `bats --formatter tap13` is selected automatically unless the
   caller passes their own formatter flag via `extraBatsArgs`.
 
@@ -114,15 +136,19 @@ When `emitNdjson = true`:
 $ nix build .#batman-ndjson-demo
 ...
 batman-ndjson-demo> >>> BATSLANE NDJSON BEGIN <<<
-batman-ndjson-demo> {"type":"test","n":1,"description":"ndjson_demo_passes","ok":true,...}
 batman-ndjson-demo> {"type":"test","n":2,"description":"ndjson_demo_fails_with_diagnostic","ok":false,"diagnostic":{"message":"(in test file ndjson_failure_demo.bats, line 18)\n  `false' failed\n"},...}
-batman-ndjson-demo> {"type":"summary","passed":1,"failed":1,...,"valid":true}
+batman-ndjson-demo> passes: 1 record(s) at /nix/store/<hash>-batman-ndjson-demo/run.passes.ndjson
 batman-ndjson-demo> >>> BATSLANE NDJSON END <<<
 error: builder failed
 ```
 
-The "Last 5 log lines" block nix prints automatically already
-contains the structured failure record.
+With `splitNdjson = true` (the default) the inline echo carries only
+the failure records plus the `passes:` summary line; the passing
+records live in `run.passes.ndjson` rather than the log. The "Last 5
+log lines" block nix prints automatically therefore leads with the
+structured failure record. (With `splitNdjson = false` the block
+instead echoes every record, including the passing test and the
+trailing summary.)
 
 ### Extracting just the NDJSON
 
@@ -130,29 +156,49 @@ contains the structured failure record.
 $ nix log .#batman-ndjson-demo \
     | sed -n '/BATSLANE NDJSON BEGIN/,/BATSLANE NDJSON END/p' \
     | sed '1d;$d' \
-    | jq 'select(.type == "test" and .ok == false)'
+    | grep -v '^passes: ' \
+    | jq 'select(.type == "test")'
 {"type":"test","n":2,"description":"ndjson_demo_fails_with_diagnostic","ok":false,...}
 ```
+
+In split mode (default) the echoed block is already failures-only, so
+no `select(.ok == false)` is needed; the trailing `passes:` summary
+line is plain text and is dropped by `grep -v`. With `splitNdjson =
+false` the block contains every record, so add `and .ok == false` back
+to isolate failures. For on-disk access regardless of pass/fail, read
+`run.failures.ndjson` (or `run.ndjson`) under `--keep-failed` instead.
 
 ### Inspecting the on-disk artifacts after `--keep-failed`
 
 ```sh
 $ nix build .#batman-ndjson-demo --keep-failed
 $ ls /nix/store/<hash>-batman-ndjson-demo/
-exit_code  run.ndjson  run.raw.tap  run.tap
+exit_code  run.failures.ndjson  run.passes.ndjson  run.raw.tap  run.tap
 $ cat /nix/store/<hash>-batman-ndjson-demo/exit_code
 1
 ```
 
+With `splitNdjson = false` the directory carries a single `run.ndjson`
+in place of the `run.failures.ndjson` / `run.passes.ndjson` pair.
+
 ## Design
 
 The pipeline is three stages chained through the build script in
-`nix/packages/bats-lane.nix`:
+`nix/packages/bats-lane.nix`. With `splitNdjson = true` (the default)
+the final stage splits records into two files:
 
 ```
-bats --formatter tap13 ...  →  $out/run.raw.tap     (TAP-13 + YAML diagnostics)
-tap-dancer reformat         →  $out/run.tap         (TAP-14 with version header)
-tap-dancer format-ndjson    →  $out/run.ndjson      (per-test NDJSON records)
+bats --formatter tap13 ...        →  $out/run.raw.tap          (TAP-13 + YAML diagnostics)
+tap-dancer reformat               →  $out/run.tap              (TAP-14 with version header)
+tap-dancer format-ndjson --split  →  $out/run.failures.ndjson  (stdout: failures + bail-outs)
+              --pass-out <file>    →  $out/run.passes.ndjson    (--pass-out: passing records)
+```
+
+With `splitNdjson = false` the final stage is the original combined
+form, writing every record to a single file:
+
+```
+tap-dancer format-ndjson          →  $out/run.ndjson           (per-test NDJSON records)
 ```
 
 `tap13` is the bats-core formatter that emits YAML diagnostic
