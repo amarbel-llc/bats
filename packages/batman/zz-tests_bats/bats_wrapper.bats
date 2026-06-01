@@ -107,6 +107,32 @@ EOF
   refute_output --partial "passing_two"
 }
 
+# Regression for bats#31: under split mode the wrapper feeds bats's
+# output into `tap-dancer format-ndjson`. Only the tap13 formatter emits
+# the YAML diagnostic blocks that format-ndjson lifts into a failing
+# record's `diagnostic` field; the legacy `--tap` formatter emits none,
+# so failure records carried `"diagnostic":null` and a red run gave zero
+# reason. The wrapper must therefore force tap13 under split — even when
+# the caller passes `--tap` (the reported reproduction).
+function bats_wrapper_split_failure_record_carries_diagnostic { # @test
+  cat >"${TEST_TMPDIR}/diag.bats" <<'EOF'
+#! /usr/bin/env bats
+function failing_with_reason { # @test
+  false
+}
+EOF
+  run "$BATS_WRAPPER" --no-sandbox --tap "${TEST_TMPDIR}/diag.bats"
+  # tap-dancer format-ndjson exits 1 when any record is a failure.
+  assert_failure
+  # The failure record names the failing test ...
+  assert_output --partial "failing_with_reason"
+  # ... and carries a non-null diagnostic object lifted from the tap13
+  # YAML block (the failing command + line number).
+  refute_output --partial '"diagnostic":null'
+  assert_output --partial '"diagnostic":{'
+  assert_output --partial "failed"
+}
+
 function bats_wrapper_split_writes_passes_to_pass_out { # @test
   cat >"${TEST_TMPDIR}/passes.bats" <<'EOF'
 #! /usr/bin/env bats

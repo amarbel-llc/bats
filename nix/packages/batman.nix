@@ -272,24 +272,41 @@ let
       # Append batman's bats-libs to BATS_LIB_PATH (caller paths take precedence)
       export BATS_LIB_PATH="''${BATS_LIB_PATH:+$BATS_LIB_PATH:}${bats-libs}/share/bats"
 
-      # Default to TAP output unless a formatter flag is already
-      # present. `--output` is bats's log-dir flag, not a formatter,
-      # so it is intentionally absent from this case (see bats#25).
+      # Detect whether the caller already chose a formatter. `--output`
+      # is bats's log-dir flag, not a formatter, so it is intentionally
+      # absent from this case (see bats#25).
       has_formatter=false
       for arg in "$@"; do
         case "$arg" in
           --tap|--formatter|-F) has_formatter=true; break ;;
         esac
       done
-      if ! $has_formatter; then
+
+      # Pick the bats formatter that feeds the pipeline.
+      #
+      # Under split mode the bats output is an intermediate consumed by
+      # `tap-dancer format-ndjson`; the caller never sees it on stdout.
+      # tap13 is the only bats formatter that emits YAML diagnostic
+      # blocks, which format-ndjson lifts into each failing record's
+      # `diagnostic`/`output` fields. The legacy `tap` formatter (the
+      # target of `--tap`/`-t`) emits none, so failures came out as
+      # `"diagnostic":null` with no debuggable reason (bats#31). So
+      # under split we force tap13 regardless of any caller-supplied
+      # formatter — bats's parser is last-wins on the formatter, so the
+      # appended flag overrides an earlier `--tap`/`-F`.
+      #
+      # Under --no-split the caller sees the raw stream, so honor their
+      # formatter choice and only inject `--tap` when they picked none.
+      if $split; then
+        set -- "$@" --formatter tap13
+      elif ! $has_formatter; then
         set -- "$@" --tap
       fi
 
       # `tap-dancer reformat` prepends a `TAP version 14` header. The
       # split pipeline downstream (`tap-dancer format-ndjson --split`)
       # rejects input without it, so when split is on we always
-      # reformat — even when the caller passed `--tap` themselves
-      # (bats#24). When split is off, only reformat if we injected
+      # reformat. When split is off, only reformat if we injected
       # `--tap` ourselves; that preserves the legacy "caller-supplied
       # formatter passes through untouched" contract.
       use_tap14=false
