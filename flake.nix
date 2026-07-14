@@ -6,7 +6,7 @@
     # fork overlay on `import nixpkgs { ... }`, so fence,
     # buildZxScriptFromFile, gomod2nix's buildGoApplication, etc. are
     # present without a manual overlays list (see amarbel-llc/eng#60).
-    igloo.url = "github:amarbel-llc/igloo";
+    igloo.url = "git+https://code.linenisgreat.com/igloo.git";
     nixpkgs-master.url = "github:NixOS/nixpkgs/567a49d1913ce81ac6e9582e3553dd90a955875f";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
 
