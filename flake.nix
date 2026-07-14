@@ -25,6 +25,9 @@
     # into its own repo) + amarbel-llc/tap#19 (publish per-platform
     # tap-dancer-go release binaries so this FOD can switch to
     # `pkgs.fetchurl`).
+    utils.inputs.systems.follows = "igloo/systems";
+    igloo.inputs.nixpkgs-master.follows = "nixpkgs-master";
+    igloo.inputs.treefmt-nix.follows = "treefmt-nix";
   };
 
   outputs =
