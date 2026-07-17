@@ -46,6 +46,7 @@ just build-devshell             # devShell build-check (catches vendor-env break
 just test-batman                # aggregate: test-batman-fence + test-batman-self-proof
 just test-batman-fence          # batman.bats under plain nixpkgs bats
 just test-batman-self-proof     # batsLane self-proof inside the nix sandbox
+just test-extras                # aggregate: test-batman-container-self-proof + test-bats-core (opt-in)
 just test-batman-container-self-proof  # podman container lane (opt-in, not in test-batman)
 just test-bats-core             # upstream bats-core tests (test/ tree, opt-in manual)
 
@@ -176,7 +177,7 @@ and `none` is intended for the unset case (consumers calling
 ### Code style
 
 - Nix: `nixfmt-rfc-style`
-- Shell: `set -euo pipefail`, 2-space indent, `shfmt -s -i=2`
+- Shell: `set -euo pipefail`, 2-space indent, `shfmt -s -ci -i=2`
 - Tests: BATS for the batman tests; TAP-14 output where reasonable.
 
 ### Git

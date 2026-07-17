@@ -38,8 +38,7 @@
     ".direnv/**"
     ".tmp/**"
 
-    # Version + license files.
-    "LICENSE"
+    # Version + license files (LICENSE is in conformist's default-excludes; LICENSE.md is not).
     "LICENSE.md"
     "version.env"
 
@@ -70,8 +69,6 @@
     "compose.override.dist"
     "package.json"
     "AUTHORS"
-    "SECURITY.md"
-    "README.md"
     ".pre-commit-config.yaml"
     ".readthedocs.yml"
     ".codespellrc"
