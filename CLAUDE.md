@@ -33,7 +33,7 @@ just                            # default = CI lane (validate + lint + build + t
 just validate                   # aggregate: validate-flake
 just validate-flake             # nix flake check (check-bats-libs-path + batman-self-proof + formatting)
 just lint                       # aggregate: lint-fmt + lint-shell
-just lint-shell                 # shellcheck on lib/*.bash and libexec/*
+just lint-shell                 # shellcheck on lib/bats-core/*.bash and libexec/bats-core/*
 just lint-fmt                   # read-only formatting gate (builds checks.formatting)
 
 # build

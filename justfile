@@ -16,10 +16,10 @@ validate-flake:
 [group("pre-build")]
 lint: lint-fmt lint-shell
 
-# shellcheck on lib/*.bash and libexec/*.
+# shellcheck on lib/bats-core/*.bash and libexec/bats-core/*.
 [group("pre-build")]
 lint-shell:
-    nix develop --command shellcheck lib/*.bash libexec/*
+    nix develop --command shellcheck lib/bats-core/*.bash libexec/bats-core/*
 
 # Read-only formatting gate: builds the `checks.formatting` derivation,
 # which runs conformist against a /nix/store snapshot of the source tree
