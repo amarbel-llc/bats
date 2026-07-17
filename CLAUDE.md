@@ -27,15 +27,17 @@ Conventions follow eng-design_patterns-justfile(7): verb-noun recipe
 names, aggregate-with-no-body, `[group(...)]` lifecycle attributes.
 
 ``` sh
-just                            # default = CI lane (validate-flake + build + build-devshell + test-batman)
+just                            # default = CI lane (validate + lint + build + test-batman)
 
 # pre-build
+just validate                   # aggregate: validate-flake
 just validate-flake             # nix flake check (check-bats-libs-path + batman-self-proof + formatting)
+just lint                       # aggregate: lint-fmt + lint-shell
 just lint-shell                 # shellcheck on lib/*.bash and libexec/*
 just lint-fmt                   # read-only formatting gate (builds checks.formatting)
 
 # build
-just build                      # aggregate: build-batman + build-bats-libs
+just build                      # aggregate: build-batman + build-bats-libs + build-devshell
 just build-batman               # nix build .#default
 just build-bats-libs            # nix build .#bats-libs
 just build-devshell             # devShell build-check (catches vendor-env breakage)
@@ -54,7 +56,7 @@ just deploy-tag <ver> <msg>     # signed annotated tag + push
 just deploy-release <ver>       # bump-version + commit + push + tag + push tag (on master)
 
 # codemod
-just codemod-fmt                # `nix fmt` (nixfmt + shfmt via treefmt-nix; see treefmt.nix)
+just codemod-fmt                # `nix fmt` (nixfmt + shfmt via conformist; see conformist.nix)
 
 # maintenance
 just bump-version <ver>         # rewrite BATMAN_VERSION in version.env

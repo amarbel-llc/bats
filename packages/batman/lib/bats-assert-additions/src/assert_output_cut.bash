@@ -138,52 +138,52 @@ assert_output_cut() {
 
   while (($# > 0)); do
     case "$1" in
-    -p | --partial)
-      is_mode_partial=1
-      shift
-      ;;
-    -e | --regexp)
-      is_mode_regexp=1
-      shift
-      ;;
-    - | --stdin)
-      use_stdin=1
-      shift
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      cut_args+=("$1")
-      shift
-      ;;
+      -p | --partial)
+        is_mode_partial=1
+        shift
+        ;;
+      -e | --regexp)
+        is_mode_regexp=1
+        shift
+        ;;
+      - | --stdin)
+        use_stdin=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        cut_args+=("$1")
+        shift
+        ;;
     esac
   done
 
   while (($# > 0)); do
     case "$1" in
-    -p | --partial)
-      is_mode_partial=1
-      shift
-      ;;
-    -e | --regexp)
-      is_mode_regexp=1
-      shift
-      ;;
-    - | --stdin)
-      use_stdin=1
-      shift
-      ;;
-    -s | --sort)
-      should_sort=1
-      shift
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *) break ;;
+      -p | --partial)
+        is_mode_partial=1
+        shift
+        ;;
+      -e | --regexp)
+        is_mode_regexp=1
+        shift
+        ;;
+      - | --stdin)
+        use_stdin=1
+        shift
+        ;;
+      -s | --sort)
+        should_sort=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *) break ;;
     esac
   done
 

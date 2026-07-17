@@ -1,16 +1,20 @@
 # bats / batman — see eng-design_patterns-justfile(7) for conventions.
 cmd_nix_dev := "nix develop --command"
 
-# CI-equivalent build-and-verify pipeline. `just` (no args) runs this;
-# spinclass also runs it as the pre-merge gate (see ./sweatfile).
-default: validate-flake build build-devshell test-batman
+default: validate lint build test-batman
 
 # --- pre-build ---
+
+[group("pre-build")]
+validate: validate-flake
 
 # nix flake check (runs check-bats-libs-path, batman-self-proof, formatting).
 [group("pre-build")]
 validate-flake:
     nix flake check --keep-going
+
+[group("pre-build")]
+lint: lint-fmt lint-shell
 
 # shellcheck on lib/*.bash and libexec/*.
 [group("pre-build")]
@@ -18,7 +22,7 @@ lint-shell:
     nix develop --command shellcheck lib/*.bash libexec/*
 
 # Read-only formatting gate: builds the `checks.formatting` derivation,
-# which runs treefmt against a /nix/store snapshot of the source tree
+# which runs conformist against a /nix/store snapshot of the source tree
 # and fails if anything would change. Does NOT modify files in the
 # worktree — the modifying counterpart is codemod-fmt. Also runs as
 # part of validate-flake.
@@ -29,7 +33,7 @@ lint-fmt:
 # --- build ---
 
 [group("build")]
-build: build-batman build-bats-libs
+build: build-batman build-bats-libs build-devshell
 
 # Realize the default batman bundle into the nix store and print the path.
 [group("build")]
@@ -102,6 +106,9 @@ test-batman-fence-wrapper:
 [group("post-build")]
 test-batman-self-proof:
     nix build --no-link --print-out-paths ".#checks.$(nix eval --raw --impure --expr builtins.currentSystem).batman-self-proof"
+
+[group("post-build")]
+test-extras: test-batman-container-self-proof test-bats-core
 
 # Run batman's tests inside a podman container built from a nix OCI
 # image (the container lane). Sibling to test-batman-self-proof and
@@ -202,13 +209,12 @@ deploy-release version:
 # --- codemod ---
 
 [group("codemod")]
-codemod-fmt: codemod-fmt-treefmt
+codemod-fmt: codemod-fmt-tree
 
-# Run treefmt via the flake's `formatter.${system}` wrapper, which
-# composes nixfmt + shfmt under one CLI. See treefmt.nix for the
-# program config.
+# Format the tree in place (repair mode) via `nix fmt`.
+# nixfmt + shfmt driven by conformist; config in ./conformist.nix.
 [group("codemod")]
-codemod-fmt-treefmt:
+codemod-fmt-tree:
     nix fmt
 
 # --- maintenance ---
@@ -223,12 +229,12 @@ codemod-fmt-treefmt:
 bump-version new_version:
     #!/usr/bin/env bash
     set -euo pipefail
-    current=$(grep '^BATMAN_VERSION=' version.env | cut -d= -f2)
+    current=$(grep '^export BATMAN_VERSION=' version.env | cut -d= -f2)
     if [[ "$current" == "{{new_version}}" ]]; then
         gum log --level info "already at {{new_version}}"
         exit 0
     fi
-    sed -i.bak 's/^BATMAN_VERSION=.*/BATMAN_VERSION={{new_version}}/' version.env && rm version.env.bak
+    sed -i.bak 's/^export BATMAN_VERSION=.*/export BATMAN_VERSION={{new_version}}/' version.env && rm version.env.bak
     gum log --level info "bumped BATMAN_VERSION: $current → {{new_version}}"
 
 [group("maintenance")]
