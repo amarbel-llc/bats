@@ -209,7 +209,7 @@ Override with wrapper flags:
 - *--no-sandbox* — disable fence entirely
 - *--allow-local-binding* — allow localhost binding (currently a
   no-op until fence implements seccomp-level bind() blocking; see
-  https://github.com/amarbel-llc/bats/issues/3)
+  https://code.linenisgreat.com/bats/issues/3)
 
 Fence and bats-island are complementary: bats-island prevents tests
 from *wanting* to access the real home; fence *enforces* that they

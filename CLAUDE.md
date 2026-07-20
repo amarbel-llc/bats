@@ -165,7 +165,7 @@ gaps relative to sandcastle:
   schema but not seccomp-enforced today (fence's filter blocks
   dangerous syscalls + TIOCSTI but not `bind()`). The matching
   bats wrapper tests were removed pending
-  https://github.com/amarbel-llc/bats/issues/3.
+  https://code.linenisgreat.com/bats/issues/3.
 - No equivalent of sandcastle's `allowAllUnixSockets` toggle. The
   wrapper still parses `--allow-unix-sockets` for CLI compat but it
   is a no-op.

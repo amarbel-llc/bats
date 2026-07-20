@@ -212,7 +212,7 @@ let
             # line option" error before any test runs. (Whether AF_UNIX
             # access still works under fence's policy is a separate
             # question tracked in the issue.)
-            echo "bats wrapper: --allow-unix-sockets is deprecated and ignored (no-op); the fence backend has no AF_UNIX toggle. See https://github.com/amarbel-llc/bats/issues/27" >&2
+            echo "bats wrapper: --allow-unix-sockets is deprecated and ignored (no-op); the fence backend has no AF_UNIX toggle. See https://code.linenisgreat.com/bats/issues/27" >&2
             shift
             ;;
           --no-tempdir-cleanup)

@@ -161,7 +161,7 @@ EOF
 # Fence's release accepts `network.allowLocalBinding: false` in its
 # config schema but does not enforce it — bind() is not in fence's
 # seccomp deny set today. Re-add these tests once that gap is closed
-# (see https://github.com/amarbel-llc/bats/issues/3).
+# (see https://code.linenisgreat.com/bats/issues/3).
 
 function bats_wrapper_no_split_restores_tap14_stream { # @test
   cat >"${TEST_TMPDIR}/plan.bats" <<'EOF'
