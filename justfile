@@ -26,6 +26,8 @@ lint-shell:
 # and fails if anything would change. Does NOT modify files in the
 # worktree — the modifying counterpart is codemod-fmt. Also runs as
 # part of validate-flake.
+#
+# check the tree's formatting without modifying files
 [group("pre-build")]
 lint-fmt:
     nix build --no-link --print-build-logs .#checks.{{ arch() }}-linux.formatting
@@ -47,6 +49,8 @@ build-bats-libs:
 
 # Verify the devShell evaluates and builds without errors. Catches
 # vendor-env / overlay breakage that the prod-binary build can mask.
+#
+# verify the devShell evaluates and builds without errors
 [group("build")]
 build-devshell:
     nix build --no-link .#devShells.{{ arch() }}-linux.default
@@ -66,6 +70,8 @@ test-batman: test-batman-fence test-batman-fence-wrapper test-batman-self-proof
 # for its sandboxed child; bats picks that up as BATS_TMPDIR and refuses
 # to start if the directory is missing. fence's own integration tests do
 # the same dance.
+#
+# run batman.bats under plain nixpkgs bats
 [group("post-build")]
 test-batman-fence:
     @mkdir -p /tmp/fence; \
@@ -90,6 +96,8 @@ test-batman-fence:
 # `$BATS_WRAPPER` invocation inside the .bats file would be a nested
 # fence call, which fails. `--no-sandbox` at the outer level keeps the
 # inner-wrapper-asserting tests as the only fence path under test.
+#
+# run bats_wrapper_fence.bats host-side against the fence-wrapped bats
 [group("post-build")]
 test-batman-fence-wrapper:
     @mkdir -p /tmp/fence; \
@@ -103,6 +111,8 @@ test-batman-fence-wrapper:
 # batsLane builder this repo exports, inside the nix sandbox. Picks up
 # all three zz-tests_bats/*.bats files with BATMAN_BIN and BATS_WRAPPER
 # pointed at the built batman bundle. Also runs as part of validate-flake.
+#
+# run batman's own bats suite via the batsLane builder in the nix sandbox
 [group("post-build")]
 test-batman-self-proof:
     nix build --no-link --print-out-paths ".#checks.$(nix eval --raw --impure --expr builtins.currentSystem).batman-self-proof"
@@ -115,6 +125,8 @@ test-extras: test-batman-container-self-proof test-bats-core
 # test-batman-fence, not part of the test-batman aggregate. Requires
 # podman on the host (on Darwin, also `podman machine`).
 # See FDR-0002 (packages/batman/docs/features/0002-podman-container-lane.md).
+#
+# run batman's tests inside a podman container (the container lane)
 [group("post-build")]
 test-batman-container-self-proof:
     nix run .#batman-container-self-proof
@@ -133,6 +145,8 @@ run-batman *args:
 
 # Generic ad-hoc invocation of the container lane against an arbitrary
 # bats source tree. Usage: `just run-bats-container ./path/to/zz-tests_bats`.
+#
+# run the container lane against an arbitrary bats source tree
 [group("operational")]
 run-bats-container *args:
     nix run .#bats-lane-container -- {{args}}
@@ -140,6 +154,8 @@ run-bats-container *args:
 # Create a signed annotated tag, push it to origin, and verify the
 # signature. The "v" prefix is added for you, so pass the semver
 # without it. Usage: just deploy-tag 0.1.0 "feat: initial fork release"
+#
+# create a signed annotated tag, push it to origin, and verify the signature
 [group("operational")]
 deploy-tag version message:
     #!/usr/bin/env bash
@@ -168,6 +184,8 @@ deploy-tag version message:
 # recipe boundaries was unreliable — the inner recipe saw a malformed
 # argument and `git tag -s` would fail in a way that didn't surface
 # until much later (see madder release-v0.3.0 incident).
+#
+# cut a release from master: bump version.env, then sign and push the tag
 [group("operational")]
 deploy-release version:
     #!/usr/bin/env bash
@@ -213,6 +231,8 @@ codemod-fmt: codemod-fmt-tree
 
 # Format the tree in place (repair mode) via `nix fmt`.
 # nixfmt + shfmt driven by conformist; config in ./conformist.nix.
+#
+# format the tree in place via nix fmt
 [group("codemod")]
 codemod-fmt-tree:
     nix fmt
@@ -225,6 +245,8 @@ codemod-fmt-tree:
 # it through batman.nix's `batmanVersion` arg into every owned
 # derivation + the `batman version` runtimeEnv. No-op if already at
 # the target. Usage: just bump-version 0.1.1
+#
+# rewrite BATMAN_VERSION in version.env to the given semver
 [group("maintenance")]
 bump-version new_version:
     #!/usr/bin/env bash
@@ -252,6 +274,8 @@ clean-result-symlinks:
 # demo's bats cases is `false`); the batsLane `emitNdjson` script
 # echoes the captured records to stderr between sentinel markers, so
 # `sed` between them is all we need. See bats-lane(7) "NDJSON OUTPUT".
+#
+# print the NDJSON block from the artificial-failure demo build log
 [group("debug")]
 debug-batman-ndjson:
     -nix build .#batman-ndjson-demo 2>&1 \
@@ -261,6 +285,8 @@ debug-batman-ndjson:
 # Print the full nix build log for a given .drv path. Wrapper around
 # `nix log` so the recipe is allowlisted and runs without permission
 # prompts when an agent is investigating a failed build.
+#
+# print the full nix build log for a given .drv path
 [group("debug")]
 debug-nix-log drv:
     nix log {{drv}}
