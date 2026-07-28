@@ -8,7 +8,7 @@ default: validate lint build test-batman
 [group("pre-build")]
 validate: validate-flake
 
-# nix flake check (runs check-bats-libs-path, batman-self-proof, formatting).
+# run nix flake check (check-bats-libs-path, batman-self-proof, formatting)
 [group("pre-build")]
 validate-flake:
     nix flake check --keep-going
@@ -16,7 +16,7 @@ validate-flake:
 [group("pre-build")]
 lint: lint-fmt lint-shell
 
-# shellcheck on lib/bats-core/*.bash and libexec/bats-core/*.
+# run shellcheck on lib/bats-core/*.bash and libexec/bats-core/*
 [group("pre-build")]
 lint-shell:
     nix develop --command shellcheck lib/bats-core/*.bash libexec/bats-core/*
@@ -37,12 +37,12 @@ lint-fmt:
 [group("build")]
 build: build-batman build-bats-libs build-devshell
 
-# Realize the default batman bundle into the nix store and print the path.
+# realize the default batman bundle into the nix store and print the path
 [group("build")]
 build-batman:
     @nix build --no-link --print-out-paths .#default
 
-# Realize just the bats-libs bundle and print the path.
+# realize just the bats-libs bundle and print the path
 [group("build")]
 build-bats-libs:
     @nix build --no-link --print-out-paths .#bats-libs
@@ -131,14 +131,18 @@ test-extras: test-batman-container-self-proof test-bats-core
 test-batman-container-self-proof:
     nix run .#batman-container-self-proof
 
-# Upstream bats-core tests (test/ tree). Opt-in manual; not part of default.
+# Opt-in manual; not part of default.
+#
+# run the upstream bats-core tests (test/ tree)
 [group("post-build")]
 test-bats-core *ARGS:
     nix develop --command bats test/ {{ARGS}}
 
 # --- operational ---
 
-# Invoke the built batman binary with arbitrary args. Useful for smoke-testing.
+# Useful for smoke-testing.
+#
+# invoke the built batman binary with arbitrary args
 [group("operational")]
 run-batman *args:
     @batman=$(nix build --no-link --print-out-paths .#default); $batman/bin/batman {{args}}
@@ -262,7 +266,7 @@ bump-version new_version:
 [group("maintenance")]
 clean: clean-result-symlinks
 
-# Clean stray result symlinks (if any leaked from past `nix build -o ...` runs).
+# clean stray result symlinks (if any leaked from past `nix build -o ...` runs)
 [group("maintenance")]
 clean-result-symlinks:
     rm -f result result-*
