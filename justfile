@@ -295,3 +295,69 @@ debug-batman-ndjson:
 [group("debug")]
 debug-nix-log drv:
     nix log {{drv}}
+
+# Probe how the fence sandbox sees /tmp. Creates a marker directory and
+# file under /tmp on the HOST, then runs a bats file (kept outside /tmp,
+# in the worktree, so bats can cd to it regardless) under the
+# fence-wrapped bats and reports what the sandboxed side observes.
+#
+# Distinguishes "fence mounts a private/empty /tmp over the host's"
+# from "the host's /tmp is visible but a specific path is denied" —
+# the two have very different fixes. See piggy#253.
+#
+# Invoke the fence binary that the built bats wrapper actually uses,
+# with arbitrary args. fence ships no manpage and is not a top-level
+# nixpkgs attribute, so this is the only convenient way to read its
+# real config surface (`just debug-fence --help`) for the version
+# currently pinned through igloo.
+#
+# Run an arbitrary fence binary by store path. Used to compare the flag
+# surface across fence versions (e.g. whether an older pin already
+# understands --expose-host-path-rw), which decides whether a wrapper
+# change can land without also bumping igloo. See piggy#253.
+#
+# run a specific fence binary by path with arbitrary args
+[group("debug")]
+debug-fence-at fence_bin *args:
+    {{ fence_bin }} {{ args }}
+
+# Canary probe against a SPECIFIC fence binary: is a host-created /tmp
+# path visible inside the sandbox by default, and does
+# --expose-host-path-rw make it visible? Run against two fence versions
+# to show the default changed rather than the flag. See piggy#253.
+#
+# probe host-/tmp visibility for a specific fence binary
+[group("debug")]
+debug-fence-tmp-canary fence_bin:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    marker=$(mktemp -d /tmp/fence-canary-XXXXXX)
+    echo "hello" > "$marker/canary.txt"
+    cfg=$(mktemp --suffix=.json)
+    cat > "$cfg" <<'JSON'
+    {
+      "filesystem": {
+        "allowRead": ["/"], "allowExecute": ["/"],
+        "allowWrite": ["/tmp", "/private/tmp"], "denyRead": [], "denyWrite": []
+      },
+      "network": { "allowedDomains": [], "deniedDomains": [], "allowLocalBinding": false },
+      "command": { "useDefaults": false }
+    }
+    JSON
+    echo "=== $({{ fence_bin }} --version 2>&1 | head -1) ==="
+    echo "-- default (no passthrough):"
+    {{ fence_bin }} --settings "$cfg" -c "cat $marker/canary.txt" 2>/dev/null || echo "   (invisible)"
+    echo "-- with --expose-host-path-rw:"
+    {{ fence_bin }} --settings "$cfg" --expose-host-path-rw "$marker" -c "cat $marker/canary.txt" 2>/dev/null || echo "   (invisible)"
+    rm -rf "$marker" "$cfg"
+
+# run the bundled fence binary with arbitrary args
+[group("debug")]
+debug-fence *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    batman=$(nix build --no-link --print-out-paths .#default)
+    fence=$(sed -n 's/.*:\(\/nix\/store\/[^:"]*fence-[^:"]*\)\/bin.*/\1/p' "$batman/bin/bats" | head -1)
+    echo "# using: $fence" >&2
+    "$fence/bin/fence" {{ args }}
+

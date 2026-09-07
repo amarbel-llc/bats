@@ -191,6 +191,7 @@ let
       pass_out=""
       config=""
 
+      expose_args=()
       bats_args=()
       while (( $# > 0 )); do
         case "$1" in
@@ -200,6 +201,25 @@ let
             ;;
           --allow-local-binding)
             allow_local_binding=true
+            shift
+            ;;
+          --expose-host-path|--expose-host-path-rw)
+            # Forwarded verbatim to fence. Since fence 0.1.66 the Linux
+            # sandbox mounts a private tmpfs over /tmp, so anything the
+            # HOST created there — fixture dirs, and notably AF_UNIX
+            # sockets — is invisible to the test process. These flags are
+            # the supported way back in, and they exist in both fence
+            # 0.1.60 and 0.1.66, so passing them is safe across the pin.
+            # See https://code.linenisgreat.com/bats/issues/27.
+            if (( $# < 2 )); then
+              echo "bats wrapper: $1 requires a path argument" >&2
+              exit 2
+            fi
+            expose_args+=("$1" "$2")
+            shift 2
+            ;;
+          --expose-host-path=*|--expose-host-path-rw=*)
+            expose_args+=("''${1%%=*}" "''${1#*=}")
             shift
             ;;
           --allow-unix-sockets)
@@ -212,7 +232,7 @@ let
             # line option" error before any test runs. (Whether AF_UNIX
             # access still works under fence's policy is a separate
             # question tracked in the issue.)
-            echo "bats wrapper: --allow-unix-sockets is deprecated and ignored (no-op); the fence backend has no AF_UNIX toggle. See https://code.linenisgreat.com/bats/issues/27" >&2
+            echo "bats wrapper: --allow-unix-sockets is deprecated and ignored (no-op); fence has no AF_UNIX toggle. To reach a socket the host created under /tmp, pass --expose-host-path-rw <dir> instead. See https://code.linenisgreat.com/bats/issues/27" >&2
             shift
             ;;
           --no-tempdir-cleanup)
@@ -383,7 +403,7 @@ let
           set -- --no-tempdir-cleanup "$@"
         fi
 
-        fence --settings "$config" -- ${pkgs.bats}/bin/bats "$@" | reformat_tap | split_or_passthrough
+        fence --settings "$config" ''${expose_args[@]+"''${expose_args[@]}"} -- ${pkgs.bats}/bin/bats "$@" | reformat_tap | split_or_passthrough
       else
         if $no_tempdir_cleanup; then
           set -- --no-tempdir-cleanup "$@"

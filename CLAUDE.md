@@ -168,7 +168,14 @@ gaps relative to sandcastle:
   https://code.linenisgreat.com/bats/issues/3.
 - No equivalent of sandcastle's `allowAllUnixSockets` toggle. The
   wrapper still parses `--allow-unix-sockets` for CLI compat but it
-  is a no-op.
+  is a no-op. The working replacement is not a socket toggle at all:
+  since fence 0.1.66 the Linux sandbox mounts a private tmpfs over
+  `/tmp`, so a host-created AF_UNIX socket there is simply not
+  visible. Name its directory with `--expose-host-path-rw` (forwarded
+  to fence; also accepted by 0.1.60, so it is safe across the pin).
+  Verified with `just debug-fence-tmp-canary <fence-binary>`:
+  0.1.60 sees host `/tmp` by default, 0.1.66 does not, and both see it
+  with the flag.
 
 `--query-sandbox` returns `fence` when the wrapper is invoked normally
 and `none` is intended for the unset case (consumers calling

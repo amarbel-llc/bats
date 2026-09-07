@@ -210,6 +210,18 @@ Override with wrapper flags:
 - *--allow-local-binding* — allow localhost binding (currently a
   no-op until fence implements seccomp-level bind() blocking; see
   https://code.linenisgreat.com/bats/issues/3)
+- *--expose-host-path* / *--expose-host-path-rw* — expose a host file
+  or directory at the same path inside the sandbox, read-only or
+  read-write. Repeatable; forwarded verbatim to fence.
+
+Since fence 0.1.66 the Linux sandbox mounts a private tmpfs over /tmp,
+so anything the *host* created there is invisible to the test process —
+including AF_UNIX sockets. A test that must reach a socket, fixture, or
+daemon endpoint created outside the sandbox has to name its directory
+with *--expose-host-path-rw*; without it the connect fails as though
+nothing were listening. Note this bites even when the path is under
+/tmp, which *filesystem.allowWrite* already lists: allowWrite governs
+policy, not visibility.
 
 Fence and bats-island are complementary: bats-island prevents tests
 from *wanting* to access the real home; fence *enforces* that they

@@ -30,6 +30,14 @@ setup() {
 
   require_bin BATS_WRAPPER
   export BATS_WRAPPER
+
+  # Every case below writes the inner .bats file into $TEST_TMPDIR,
+  # which lives under /tmp. Since fence 0.1.66 the Linux sandbox mounts
+  # a private tmpfs over /tmp, so host-created content there is
+  # invisible and bats cannot even cd to the test file's directory.
+  # Exposing it back is the supported fix and is accepted by fence
+  # 0.1.60 too, so this keeps the file working across the pin.
+  WRAPPER_EXPOSE=(--expose-host-path-rw "$TEST_TMPDIR")
 }
 
 teardown() {
@@ -48,7 +56,7 @@ function truth { # @test
   true
 }
 EOF
-  run "$BATS_WRAPPER" --no-split --tap "${TEST_TMPDIR}/truth.bats"
+  run "$BATS_WRAPPER" "${WRAPPER_EXPOSE[@]}" --no-split --tap "${TEST_TMPDIR}/truth.bats"
   assert_success
   assert_output --partial "ok 1"
 }
@@ -66,7 +74,7 @@ function config_dir_is_empty_or_missing { # @test
   fi
 }
 INNER
-  run "$BATS_WRAPPER" --no-split --tap "${TEST_TMPDIR}/read_config.bats"
+  run "$BATS_WRAPPER" "${WRAPPER_EXPOSE[@]}" --no-split --tap "${TEST_TMPDIR}/read_config.bats"
   assert_success
   assert_output --partial "ok 1"
 }
@@ -79,7 +87,7 @@ function write_tmp { # @test
   rm -f /tmp/bats-wrapper-test-$$
 }
 EOF
-  run "$BATS_WRAPPER" --no-split --tap "${TEST_TMPDIR}/write_tmp.bats"
+  run "$BATS_WRAPPER" "${WRAPPER_EXPOSE[@]}" --no-split --tap "${TEST_TMPDIR}/write_tmp.bats"
   assert_success
 }
 
@@ -116,7 +124,8 @@ function connects_to_host_socket { # @test
   [ "\$reply" = "PONG" ]
 }
 EOF
-  run "$BATS_WRAPPER" "$@" --no-split --tap "${TEST_TMPDIR}/connect.bats"
+  run "$BATS_WRAPPER" "${WRAPPER_EXPOSE[@]}" --expose-host-path-rw "$SOCK_DIR" \
+    "$@" --no-split --tap "${TEST_TMPDIR}/connect.bats"
   assert_success
   assert_output --partial "ok 1"
 }
@@ -149,15 +158,20 @@ function creates_file_in_tmpdir { # @test
   echo "marker" > "${BATS_TEST_TMPDIR}/marker.txt"
 }
 EOF
-  run "$BATS_WRAPPER" --no-split --no-tempdir-cleanup "${TEST_TMPDIR}/preserve.bats"
+  # TMPDIR is pinned into the exposed dir so BATS_RUN_TMPDIR lands on a
+  # host-visible path. Left at its default it would be created on the
+  # sandbox's private /tmp tmpfs (fence >= 0.1.66) and vanish with the
+  # sandbox, so --no-tempdir-cleanup would have nothing to preserve.
+  TMPDIR="$TEST_TMPDIR" run "$BATS_WRAPPER" "${WRAPPER_EXPOSE[@]}" \
+    --no-split --no-tempdir-cleanup "${TEST_TMPDIR}/preserve.bats"
   assert_success
   assert_output --partial "ok 1"
   # Extract BATS_RUN_TMPDIR from output (printed by --no-tempdir-cleanup)
   bats_run_dir="$(echo "$output" | grep "BATS_RUN_TMPDIR" | cut -d' ' -f2)"
   [[ -n $bats_run_dir ]]
   # Verify the temp dir survived (--no-tempdir-cleanup forwarded to bats)
-  [[ -d $bats_run_dir ]]
-  [[ -f "$bats_run_dir/test/1/marker.txt" ]]
+  [[ -d $bats_run_dir ]] || fail "BATS_RUN_TMPDIR did not survive on the host: $bats_run_dir"
+  [[ -f "$bats_run_dir/test/1/marker.txt" ]] || fail "marker missing under $bats_run_dir"
   # Clean up manually
   rm -rf "$bats_run_dir"
 }
