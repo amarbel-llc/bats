@@ -102,6 +102,7 @@ test-batman-fence:
 test-batman-fence-wrapper:
     @mkdir -p /tmp/fence; \
       batman=$(nix build --no-link --print-out-paths .#default); \
+      TMPDIR=/tmp \
       BATMAN_BIN=$batman/bin/batman \
       BATS_WRAPPER=$batman/bin/bats \
       BATS_LIB_PATH=$batman/share/bats \

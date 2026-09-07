@@ -318,6 +318,11 @@
             # recipes (`deploy-tag` / `bump-version` / `deploy-release`;
             # see docs/eng-versioning(7)).
             pkgs.gum
+            # socat: host-side AF_UNIX listener for the fence-wrapper
+            # regression test (bats_wrapper_fence.bats). The recipe
+            # strips $HOME-rooted PATH entries, so a user-profile socat
+            # is not reachable there.
+            pkgs.socat
             batmanPkgs.default
           ];
 
