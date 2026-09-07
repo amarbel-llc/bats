@@ -45,7 +45,9 @@ teardown() {
     kill "$HOST_SOCK_PID" 2>/dev/null || true
     wait "$HOST_SOCK_PID" 2>/dev/null || true
   fi
-  [[ -n ${SOCK_DIR:-} ]] && rm -rf "$SOCK_DIR"
+  if [[ -n ${SOCK_DIR:-} ]]; then
+    rm -rf "$SOCK_DIR"
+  fi
   rm -rf "$TEST_TMPDIR"
 }
 
